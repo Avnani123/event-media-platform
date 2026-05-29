@@ -1,0 +1,79 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+model User {
+  id           Int       @id @default(autoincrement())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         String    @default("Viewer") // Admin, Photographer, Club Member, Viewer
+  referenceSelfieUrl String? // For Facial Recognition
+  createdAt    DateTime  @default(now())
+  likes        Like[]
+  comments     Comment[]
+  mediaUploaded Media[]
+
+  @@map("users")
+}
+
+model Event {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  category    String?  // Photoshoot, Workshop, Competition, Fest, Party
+  eventDate   DateTime
+  createdAt   DateTime @default(now())
+  media       Media[]
+
+  @@map("events")
+}
+
+model Media {
+  id             Int       @id @default(autoincrement())
+  eventId        Int
+  uploaderId     Int?
+  s3OriginalUrl  String
+  s3ThumbnailUrl String?
+  mediaType      String    // image or video
+  isPrivate      Boolean   @default(false)
+  tags           String    // Stored as a comma-separated string for SQLite
+  createdAt      DateTime  @default(now())
+  
+  event          Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploader       User?     @relation(fields: [uploaderId], references: [id])
+  likes          Like[]
+  comments       Comment[]
+
+  @@map("media")
+}
+
+model Like {
+  id        Int      @id @default(autoincrement())
+  mediaId   Int
+  userId    Int
+  createdAt DateTime @default(now())
+
+  media     Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([mediaId, userId])
+  @@map("likes")
+}
+
+model Comment {
+  id        Int      @id @default(autoincrement())
+  mediaId   Int
+  userId    Int
+  text      String
+  createdAt DateTime @default(now())
+
+  media     Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+}
