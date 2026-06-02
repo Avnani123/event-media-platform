@@ -4,8 +4,9 @@ const path = require('path');
 const fs = require('fs'); 
 const mediaRoutes = require('./routes/mediaRoutes');
 
-const app = express();
 
+const app = express();
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 // Configure CORS for Next.js frontend
 app.use(cors({
   origin: 'http://localhost:3000',
@@ -15,7 +16,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Target the root uploads folder correctly (one level above src/)
+// Inside your server.js - looking one level up from the src/ folder
 const absoluteUploadsPath = path.join(__dirname, '../uploads');
 
 if (!fs.existsSync(absoluteUploadsPath)) {
