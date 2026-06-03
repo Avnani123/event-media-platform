@@ -24,3 +24,29 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+:root {
+  --bg-base: #060713;
+  --bg-surface: #0b0d1b;
+  --bg-card: #111326;
+  --border-color: #1e223d;
+  --primary-purple: #6366f1;
+  --accent-blue: #3b82f6;
+  --accent-amber: #f59e0b;
+  --accent-success: #10b981;
+  --text-main: #f3f4f6;
+  --text-muted: #6b7280;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-main);
+}
+@layer utilities {
+  @keyframes shimmer {
+    0% { background-position: 0% center; }
+    100% { background-position: 200% center; }
+  }
+  .animate-shimmer {
+    animation: shimmer 3s linear infinite;
+  }
+}
