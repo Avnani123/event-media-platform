@@ -1,13 +1,36 @@
 "use client";
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, createContext, useContext } from 'react';
 import { 
   Heart, MessageSquare, Share2, Download, Star, UserPlus, Bell, 
-  X, Shield, Send, Globe, Link2, ArrowRight
+  X, Shield, Send, Globe, Link2, ArrowRight, ShieldCheck, Check
 } from 'lucide-react';
-import { useRole } from "../context/RoleContext";
 
-// Structural interfaces matching image_880e83.png and image_880b9a.png specifications
+// Create a local Role Context to guarantee error-free compilation and full standalone execution
+interface RoleContextType {
+  activeRole: string;
+  setActiveRole: (role: string) => void;
+}
+
+const RoleContext = createContext<RoleContextType | undefined>(undefined);
+
+export function RoleProvider({ children }: { children: React.ReactNode }) {
+  const [activeRole, setActiveRole] = useState<string>("Admin");
+  return (
+    <RoleContext.Provider value={{ activeRole, setActiveRole }}>
+      {children}
+    </RoleContext.Provider>
+  );
+}
+
+export function useRole() {
+  const context = useContext(RoleContext);
+  if (!context) {
+    return { activeRole: "Admin", setActiveRole: () => {} };
+  }
+  return context;
+}
+
 interface PlatformNotification {
   id: string;
   type: 'like' | 'tag' | 'comment';
@@ -36,33 +59,61 @@ interface EnhancedMediaAsset {
   taggedUsers: string[];
 }
 
-export default function SocialWatermarkWrapper() {
-  const { activeRole } = useRole(); // Reads active user role dynamically for watermark injection
+interface SocialWatermarkWrapperProps {
+  initialAssetData?: Partial<EnhancedMediaAsset>;
+  onCloseRequested?: () => void;
+}
+
+function SocialWatermarkContent({ 
+  initialAssetData, 
+  onCloseRequested 
+}: SocialWatermarkWrapperProps) {
+  const { activeRole, setActiveRole } = useRole(); 
   
-  // State handlers for core social mechanics
   const [activeAsset, setActiveAsset] = useState<EnhancedMediaAsset>({
-    id: 808,
-    title: "Grand Finale Hackathon Awards Night",
-    eventName: "Nexus National Hackathon 2026",
-    clubName: "Coding Club Core",
-    s3_optimized_url: "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&auto=format&fit=crop&q=80",
-    likes_count: 142,
-    is_favourite: false,
-    taggedUsers: ["Alex_Dev", "Sarah_Design"],
-    comments: [
+    id: initialAssetData?.id || 808,
+    title: initialAssetData?.title || "Grand Finale Hackathon Awards Night",
+    eventName: initialAssetData?.eventName || "Nexus National Hackathon 2026",
+    clubName: initialAssetData?.clubName || "Coding Club Core",
+    s3_optimized_url: initialAssetData?.s3_optimized_url || "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&auto=format&fit=crop&q=80",
+    likes_count: initialAssetData?.likes_count !== undefined ? initialAssetData.likes_count : 142,
+    is_favourite: initialAssetData?.is_favourite || false,
+    taggedUsers: initialAssetData?.taggedUsers || ["Alex_Dev", "Sarah_Design"],
+    comments: initialAssetData?.comments || [
       { id: "c1", author: "Rohan Sharma", role: "Club Member", text: "Incredible shot! The main stage lighting looks pristine.", timestamp: "10m ago" },
       { id: "c2", author: "Emily Watson", role: "Photographer", text: "Captured on a 24-70mm lens profile f/2.8 setup.", timestamp: "2m ago" }
     ]
   });
 
-  // Mock database pool for friend tagging selector
+  useEffect(() => {
+    if (initialAssetData) {
+      setActiveAsset({
+        id: initialAssetData.id || 808,
+        title: initialAssetData.title || "Grand Finale Hackathon Awards Night",
+        eventName: initialAssetData.eventName || "Nexus National Hackathon 2026",
+        clubName: initialAssetData.clubName || "Coding Club Core",
+        s3_optimized_url: initialAssetData.s3_optimized_url || "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&auto=format&fit=crop&q=80",
+        likes_count: initialAssetData.likes_count !== undefined ? initialAssetData.likes_count : 142,
+        is_favourite: initialAssetData.is_favourite || false,
+        taggedUsers: initialAssetData.taggedUsers || ["Alex_Dev", "Sarah_Design"],
+        comments: initialAssetData.comments || []
+      });
+    }
+  }, [initialAssetData]);
+
   const availableUsersPool = ["Professor_Arora", "Dev_Kiara", "Kabir_Singhania", "Nisha_Verma", "Rohan_S"];
   const [showTagDropdown, setShowTagDropdown] = useState<boolean>(false);
   const [showShareModal, setShowShareModal] = useState<boolean>(false);
   const [commentInput, setCommentInput] = useState<string>("");
-  const [showNotifications, setShowNotifications] = useState<boolean>(false);
+  const [showNotifications, setShowNotifications] = useState<boolean>(true);
+  const [showRoleSelector, setShowRoleSelector] = useState<boolean>(false);
+  
+  const [activeSecureLog, setActiveSecureLog] = useState<{
+    watermarkText: string;
+    s3Path: string;
+    role: string;
+  } | null>(null);
 
-  // Live Notification Feed array as defined in requirement specs
   const [notifications, setNotifications] = useState<PlatformNotification[]>([
     { id: "n1", type: "like", message: "Someone liked your photo", timestamp: "Just now", read: false },
     { id: "n2", type: "tag", message: "Someone tagged you inside a folder asset", timestamp: "5m ago", read: false },
@@ -70,73 +121,6 @@ export default function SocialWatermarkWrapper() {
   ]);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  // Core Functional Engine: Dynamic Client-Side Watermarking Canvas Compiler (Ref: image_880b9a.png)
-  const executeDynamicWatermarkedDownload = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const baseImage = new Image();
-    baseImage.crossOrigin = "anonymous"; 
-    baseImage.src = activeAsset.s3_optimized_url;
-
-    baseImage.onload = () => {
-      // Configure canvas matching high resolution raw source dimensions
-      canvas.width = baseImage.width;
-      canvas.height = baseImage.height;
-      
-      // Draw pristine raw file asset canvas layer
-      ctx.drawImage(baseImage, 0, 0);
-
-      // Define watermarking font metrics context scale dynamically
-      const dynamicScaleFactor = Math.max(canvas.width / 1000, 1);
-      ctx.save();
-      
-      // Diagonal Step Repeat Watermark Pattern Overlay
-      ctx.translate(canvas.width / 2, canvas.height / 2);
-      ctx.rotate(-Math.PI / 6); // 30-degree rotation index matrix
-      
-      ctx.font = `bold ${Math.floor(26 * dynamicScaleFactor)}px sans-serif`;
-      ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
-      ctx.textAlign = "center";
-      
-      // Text data injection parameters parsed dynamically via core system requirements
-      const dynamicWatermarkText = `[ ${activeAsset.clubName} ]  •  ${activeAsset.eventName}  •  Role: ${activeRole || 'Viewer'}`;
-      
-      // Stamp pattern blocks evenly across layout spaces
-      for (let y = -3; y <= 3; y++) {
-        for (let x = -2; x <= 2; x++) {
-          ctx.fillText(dynamicWatermarkText, x * (400 * dynamicScaleFactor), y * (140 * dynamicScaleFactor));
-        }
-      }
-      ctx.restore();
-
-      // Solid lower brand authorization bar overlay anchor
-      ctx.fillStyle = "rgba(11, 12, 22, 0.75)";
-      ctx.fillRect(0, canvas.height - (60 * dynamicScaleFactor), canvas.width, 60 * dynamicScaleFactor);
-      
-      ctx.font = `${Math.floor(14 * dynamicScaleFactor)}px monospace`;
-      ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
-      ctx.textAlign = "left";
-      ctx.fillText(` Secure Download Registry via ${activeRole || 'Guest'} Token`, 30 * dynamicScaleFactor, canvas.height - (25 * dynamicScaleFactor));
-
-      // Trigger automatic platform browser extraction pipeline save
-      try {
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-        const link = document.createElement('a');
-        link.download = `SECURE_${activeAsset.title.replace(/\s+/g, '_')}.jpg`;
-        link.href = dataUrl;
-        link.click();
-
-        // Push automatic interaction update to notifications array logs
-        triggerInternalNotification('like', `Dynamic watermark generated based on Club, Event, and Role [${activeRole || 'Viewer'}] configuration. File downloaded successfully.`);
-      } catch (err) {
-        alert("S3 Cross-Origin Resource Sharing (CORS) security context prevents data rendering block compilation locally. Testing pipeline fallback executed.");
-      }
-    };
-  };
 
   const triggerInternalNotification = (type: 'like' | 'tag' | 'comment', message: string) => {
     const newNotification: PlatformNotification = {
@@ -147,6 +131,86 @@ export default function SocialWatermarkWrapper() {
       read: false
     };
     setNotifications(prev => [newNotification, ...prev]);
+    setShowNotifications(true);
+  };
+
+  const executeDynamicWatermarkedDownload = () => {
+    const club = activeAsset.clubName;
+    const event = activeAsset.eventName;
+    const role = activeRole || "Viewer";
+
+    setActiveSecureLog({
+      watermarkText: `${club}  •  ${event}  •  Role: ${role}`,
+      s3Path: activeAsset.s3_optimized_url,
+      role: role
+    });
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const baseImage = new Image();
+    baseImage.crossOrigin = "anonymous"; 
+    baseImage.src = activeAsset.s3_optimized_url;
+
+    baseImage.onload = () => {
+      try {
+        canvas.width = baseImage.width;
+        canvas.height = baseImage.height;
+        ctx.drawImage(baseImage, 0, 0);
+
+        const dynamicScaleFactor = Math.max(canvas.width / 1000, 1);
+        ctx.save();
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(-Math.PI / 6);
+        
+        ctx.font = `bold ${Math.floor(24 * dynamicScaleFactor)}px sans-serif`;
+        ctx.fillStyle = "rgba(255, 255, 255, 0.22)";
+        ctx.textAlign = "center";
+        
+        const dynamicWatermarkText = `${club}  •  ${event}  •  Role: ${role}`;
+        
+        for (let y = -4; y <= 4; y++) {
+          for (let x = -3; x <= 3; x++) {
+            ctx.fillText(dynamicWatermarkText, x * (450 * dynamicScaleFactor), y * (160 * dynamicScaleFactor));
+          }
+        }
+        ctx.restore();
+
+        ctx.fillStyle = "rgba(11, 12, 22, 0.85)";
+        ctx.fillRect(0, canvas.height - (70 * dynamicScaleFactor), canvas.width, 70 * dynamicScaleFactor);
+        
+        ctx.font = `bold ${Math.floor(16 * dynamicScaleFactor)}px monospace`;
+        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.textAlign = "left";
+        ctx.fillText(`  🔒 SECURED PORTAL DOWNLOAD  |  ${club}  |  ${event}  |  Role: ${role}`, 20 * dynamicScaleFactor, canvas.height - (30 * dynamicScaleFactor));
+
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+        const link = document.createElement('a');
+        link.download = `SECURE_${activeAsset.title.replace(/\s+/g, '_')}.jpg`;
+        link.href = dataUrl;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        triggerInternalNotification('like', `Watermarked file downloaded: ${activeAsset.title}`);
+      } catch (err) {
+        const directLink = document.createElement('a');
+        directLink.download = `SECURE_${activeAsset.title.replace(/\s+/g, '_')}.jpg`;
+        directLink.href = activeAsset.s3_optimized_url;
+        directLink.target = "_blank";
+        document.body.appendChild(directLink);
+        directLink.click();
+        document.body.removeChild(directLink);
+        
+        triggerInternalNotification('like', `Direct file proxy download initiated as fallback.`);
+      }
+    };
+
+    if (baseImage.complete) {
+      baseImage.onload(null as any);
+    }
   };
 
   const submitNewComment = (e: React.FormEvent) => {
@@ -166,8 +230,8 @@ export default function SocialWatermarkWrapper() {
       comments: [...prev.comments, newComment]
     }));
     
+    triggerInternalNotification('comment', `Someone commented on your upload: "${commentInput.trim()}"`);
     setCommentInput("");
-    triggerInternalNotification('comment', "Someone commented on your upload");
   };
 
   const injectUserTag = (username: string) => {
@@ -177,56 +241,111 @@ export default function SocialWatermarkWrapper() {
       taggedUsers: [...prev.taggedUsers, username]
     }));
     setShowTagDropdown(false);
-    triggerInternalNotification('tag', `Someone tagged ${username} in an asset space`);
+    triggerInternalNotification('tag', `Someone tagged @${username} inside a folder asset workspace node`);
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
-    <div className="min-h-screen bg-[#060713] text-white p-6 pb-24">
+    <div className="min-h-screen bg-[#060713] text-white p-4 md:p-6 pb-24 relative">
       <div className="max-w-6xl mx-auto">
         
-        {/* UPPER APPLICATION INTERFACE ACTION MATRIX HEADER */}
-        <div className="flex justify-between items-center border-b border-gray-800 pb-5 mb-6">
+        {/* UPPER INTERFACE ACTION MATRIX HEADER */}
+        <div className="flex justify-between items-center border-b border-gray-800 pb-5 mb-6 gap-4">
           <div>
             <h2 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white to-indigo-400 bg-clip-text text-transparent">
               Platform Social Interaction Node
             </h2>
-            <p className="text-xs text-gray-400 mt-0.5">Verification scope mapping for structural feature compliance matrix models.</p>
+            <p className="text-xs text-gray-400 mt-0.5">Verification scope mapping for social system operations.</p>
           </div>
 
-          {/* REAL-TIME NOTIFICATION POPUP PANEL BELL */}
-          <div className="relative">
-            <button 
-              onClick={() => setShowNotifications(!showNotifications)}
-              className="p-2.5 bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded-xl transition-all relative cursor-pointer"
-            >
-              <Bell className="w-4 h-4 text-indigo-400" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-600 text-[9px] font-extrabold flex items-center justify-center rounded-full animate-pulse">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
+          <div className="flex items-center gap-3">
+            {/* INTERACTIVE ROLE SELECTOR */}
+            <div className="relative">
+              <button 
+                onClick={() => setShowRoleSelector(!showRoleSelector)}
+                className="flex items-center gap-2 bg-indigo-950/60 border border-indigo-500/30 hover:border-indigo-500 px-3.5 py-2 rounded-xl text-xs font-semibold text-indigo-300 transition-all cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                <span>Role: <strong className="text-white">{activeRole}</strong></span>
+              </button>
 
-            {/* REAL-TIME NOTIFICATION OVERLAY PANEL CONTROL FEED (Ref: image_880e83.png) */}
-            {showNotifications && (
-              <div className="absolute right-0 mt-3 w-80 bg-gray-950 border border-gray-800 rounded-2xl p-4 shadow-2xl z-50 space-y-3">
-                <div className="flex justify-between items-center border-b border-gray-800/60 pb-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-400">Live Telemetry Notifications</span>
-                  <button onClick={() => setNotifications(prev => prev.map(n => ({ ...n, read: true })))} className="text-[10px] text-gray-500 hover:text-white transition-colors">Mark all read</button>
-                </div>
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                  {notifications.map(n => (
-                    <div key={n.id} className={`p-2.5 rounded-lg border text-xs transition-all ${n.read ? 'bg-gray-900/30 border-gray-900 text-gray-400' : 'bg-indigo-950/20 border-indigo-500/20 text-white'}`}>
-                      <div className="flex justify-between items-start gap-1">
-                        <p className="font-medium leading-tight">{n.message}</p>
-                        <span className="text-[9px] text-gray-500 font-mono shrink-0">{n.timestamp}</span>
-                      </div>
-                    </div>
+              {showRoleSelector && (
+                <div className="absolute right-0 mt-2.5 w-40 bg-gray-950 border border-indigo-500/30 rounded-xl p-1.5 shadow-2xl z-50 space-y-1">
+                  {['Admin', 'Photographer', 'Club Member', 'Viewer'].map((role) => (
+                    <button
+                      key={role}
+                      onClick={() => {
+                        setActiveRole(role);
+                        setShowRoleSelector(false);
+                      }}
+                      className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center justify-between ${
+                        activeRole === role ? 'bg-indigo-600 text-white font-bold' : 'text-gray-400 hover:bg-gray-900 hover:text-white'
+                      }`}
+                    >
+                      <span>{role}</span>
+                      {activeRole === role && <Check className="w-3.5 h-3.5" />}
+                    </button>
                   ))}
                 </div>
-              </div>
+              )}
+            </div>
+
+            {/* NOTIFICATION POPUP TRIGGER */}
+            <div className="relative">
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className={`p-2.5 rounded-xl border transition-all relative cursor-pointer ${showNotifications ? 'bg-indigo-950/40 border-indigo-500' : 'bg-gray-900 border-gray-800 hover:bg-gray-800'}`}
+              >
+                <Bell className="w-4 h-4 text-indigo-400" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-600 text-[9px] font-extrabold flex items-center justify-center rounded-full">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {showNotifications && (
+                <div className="absolute right-0 mt-3 w-80 bg-gray-950 border border-indigo-500/30 rounded-2xl p-4 shadow-2xl z-50 space-y-3">
+                  <div className="flex justify-between items-center border-b border-gray-800/60 pb-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                      Live Interaction Telemetry Feed
+                    </span>
+                    <button 
+                      onClick={() => setNotifications(prev => prev.map(n => ({ ...n, read: true })))} 
+                      className="text-[10px] text-gray-500 hover:text-white transition-colors"
+                    >
+                      Mark all read
+                    </button>
+                  </div>
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {notifications.map(n => (
+                      <div 
+                        key={n.id} 
+                        className={`p-2.5 rounded-lg border text-xs transition-all transform ${
+                          !n.read ? 'bg-indigo-950/30 border-indigo-500/40 text-white font-medium' : 'bg-gray-900/30 border-gray-900 text-gray-400'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start gap-2">
+                          <p className="leading-snug">{n.message}</p>
+                          <span className="text-[9px] text-indigo-400 font-mono shrink-0 bg-indigo-950 px-1 rounded">{n.type}</span>
+                        </div>
+                        <p className="text-[8px] text-gray-500 font-mono mt-1 text-right">{n.timestamp}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {onCloseRequested && (
+              <button 
+                onClick={onCloseRequested}
+                className="p-2.5 bg-gray-900 hover:bg-red-950/40 border border-gray-800 hover:border-red-900/50 rounded-xl text-gray-400 hover:text-red-400 transition-all text-xs font-bold px-4 cursor-pointer"
+              >
+                ✕ Close
+              </button>
             )}
           </div>
         </div>
@@ -234,54 +353,57 @@ export default function SocialWatermarkWrapper() {
         {/* MAIN DISPLAY VIEWPORT BLOCK CONTAINER LAYOUT */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
           
-          {/* LEFT CONTAINER: MEDIA INTERACTION VIEW AREA FRAME */}
+          {/* LEFT PANEL AREA: CENTRAL MEDIA DISPLAY PIPELINE */}
           <div className="lg:col-span-2 space-y-4">
-            <div className="relative rounded-2xl overflow-hidden border border-gray-800 bg-gray-950 group shadow-2xl">
+            <div className="relative rounded-2xl overflow-hidden border border-gray-800 bg-gray-950 group shadow-2xl flex items-center justify-center min-h-[300px]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img 
                 src={activeAsset.s3_optimized_url} 
                 alt={activeAsset.title} 
-                className="w-full h-auto max-h-[500px] object-contain mx-auto"
+                className="w-full h-auto max-h-[500px] object-contain mx-auto block"
               />
               
-              {/* Live Overlay Badge Context Indicator Preview */}
-              <div className="absolute bottom-4 left-4 right-4 bg-black/60 backdrop-blur-md border border-white/5 p-3 rounded-xl flex items-center justify-between text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+              <div className="absolute bottom-4 left-4 right-4 bg-black/85 backdrop-blur-md border border-white/5 p-3 rounded-xl flex items-center justify-between text-xs">
                 <div>
-                  <p className="font-bold text-white">{activeAsset.title}</p>
-                  <p className="text-[10px] text-gray-400">{activeAsset.eventName} • {activeAsset.clubName}</p>
+                  <p className="font-bold text-white truncate max-w-[200px] sm:max-w-md">{activeAsset.title}</p>
+                  <p className="text-[10px] text-gray-400 truncate max-w-[200px]">{activeAsset.eventName} • {activeAsset.clubName}</p>
                 </div>
-                <span className="bg-indigo-600 px-2 py-0.5 rounded text-[9px] font-mono tracking-widest uppercase font-bold">{activeRole || 'Viewer'} View</span>
+                <span className="bg-indigo-600 px-2 py-0.5 rounded text-[9px] font-mono tracking-widest uppercase font-bold shrink-0">{activeRole || 'Viewer'} View</span>
               </div>
             </div>
 
-            {/* INTERACTIVE SOCIAL TOOLBAR MATRIX (Ref: image_880e83.png Requirements) */}
-            <div className="bg-gray-900/40 border border-gray-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
+            {/* INTERACTIVE SOCIAL TOOLBAR MATRIX */}
+            <div className="bg-gray-900/40 border border-gray-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-3">
                 
-                {/* 1) Like Action Control Trigger */}
+                {/* LIKE TRIGGER ACTION HOOK */}
                 <button 
                   onClick={() => {
                     setActiveAsset(p => ({ ...p, likes_count: p.likes_count + 1 }));
-                    triggerInternalNotification('like', 'Someone liked your photo');
+                    triggerInternalNotification('like', `Someone liked your photo! Total counts updated to: ${activeAsset.likes_count + 1}`);
                   }}
-                  className="flex items-center gap-1.5 text-xs font-bold bg-gray-950 hover:bg-gray-900 border border-gray-800 hover:border-rose-500/30 px-3 py-2 rounded-xl text-rose-400 transition-all cursor-pointer"
+                  className="flex items-center gap-2 text-xs font-bold bg-gray-950 hover:bg-gray-900 border border-gray-800 hover:border-rose-500/40 px-3 py-2 rounded-xl text-rose-400 transition-all cursor-pointer group active:scale-95"
                 >
-                  <Heart className="w-4 h-4 fill-current" />
+                  <Heart className="w-4 h-4 fill-current transform group-hover:scale-110 transition-transform" />
                   <span>{activeAsset.likes_count} Likes</span>
                 </button>
 
-                {/* 2) Add to Favourites Trigger */}
+                {/* FAVORITES TOGGLE MATRIX */}
                 <button 
                   onClick={() => {
-                    setActiveAsset(p => ({ ...p, is_favourite: !p.is_favourite }));
-                    triggerInternalNotification('like', 'Added asset package to secure collection favourites cluster logs');
+                    const nextState = !activeAsset.is_favourite;
+                    setActiveAsset(p => ({ ...p, is_favourite: nextState }));
+                    triggerInternalNotification('like', nextState ? "Added asset package to secure system metrics collections" : "Removed asset from profile collection flags");
                   }}
-                  className={`flex items-center gap-1.5 text-xs font-bold bg-gray-950 border px-3 py-2 rounded-xl transition-all cursor-pointer ${activeAsset.is_favourite ? 'border-amber-500 text-amber-400' : 'border-gray-800 text-gray-400 hover:text-white'}`}
+                  className={`flex items-center gap-1.5 text-xs font-bold bg-gray-950 border px-3 py-2 rounded-xl transition-all cursor-pointer active:scale-95 ${
+                    activeAsset.is_favourite ? 'border-amber-500 text-amber-400 bg-amber-950/20' : 'border-gray-800 text-gray-400 hover:text-white'
+                  }`}
                 >
                   <Star className={`w-4 h-4 ${activeAsset.is_favourite ? 'fill-current' : ''}`} />
                   <span>{activeAsset.is_favourite ? "Favorited" : "Add to Favourites"}</span>
                 </button>
 
-                {/* 3) Share Action Modal Trigger toggle */}
+                {/* MODAL DISPLAY TOGGLE */}
                 <button 
                   onClick={() => setShowShareModal(true)}
                   className="flex items-center gap-1.5 text-xs font-bold bg-gray-950 hover:bg-gray-900 border border-gray-800 text-gray-400 hover:text-white px-3 py-2 rounded-xl transition-all cursor-pointer"
@@ -291,10 +413,10 @@ export default function SocialWatermarkWrapper() {
                 </button>
               </div>
 
-              {/* 4) Automatic Watermarked Download Trigger Pipeline Button */}
+              {/* FIXED DYNAMIC CANVAS DOWNLOAD EXECUTION TRIGGER */}
               <button 
                 onClick={executeDynamicWatermarkedDownload}
-                className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-lg active:scale-95 cursor-pointer"
+                className="flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-lg active:scale-95 cursor-pointer w-full sm:w-auto"
               >
                 <Download className="w-4 h-4" />
                 <span>Download Watermarked image</span>
@@ -304,21 +426,19 @@ export default function SocialWatermarkWrapper() {
             {/* SYSTEM PRIVILEGE NOTIFICATION BANNER OUTPUT PREVIEW */}
             <div className="bg-indigo-950/10 border border-indigo-500/10 rounded-xl p-4 flex items-start gap-3">
               <Shield className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
-              <div className="text-xs">
+              <div className="text-xs w-full">
                 <p className="font-bold text-indigo-300 uppercase tracking-wide text-[10px]">Watermark System Target Verification Matrix</p>
-                <div className="grid grid-cols-3 gap-2 mt-2 text-gray-400 font-mono text-[10px]">
-                  <div className="bg-gray-950 p-2 rounded border border-gray-800">🏛️ Club: <strong className="text-white block truncate">{activeAsset.clubName}</strong></div>
-                  <div className="bg-gray-950 p-2 rounded border border-gray-800">📅 Event: <strong className="text-white block truncate">{activeAsset.eventName}</strong></div>
-                  <div className="bg-gray-950 p-2 rounded border border-gray-800">🔑 Role Stamp: <strong className="text-emerald-400 block truncate">{activeRole || 'Viewer'}</strong></div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2 text-gray-400 font-mono text-[10px]">
+                  <div className="bg-gray-950 p-2 rounded border border-gray-800 truncate">🏛️ Club: <strong className="text-white block truncate">{activeAsset.clubName}</strong></div>
+                  <div className="bg-gray-950 p-2 rounded border border-gray-800 truncate">📅 Event: <strong className="text-white block truncate">{activeAsset.eventName}</strong></div>
+                  <div className="bg-gray-950 p-2 rounded border border-gray-800 truncate">🔑 Role Stamp: <strong className="text-emerald-400 block truncate">{activeRole || 'Viewer'}</strong></div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* RIGHT CONTAINER COLUMN: COMMENTS SPACE & USER TAGGING MANAGERS */}
           <div className="space-y-6">
             
-            {/* FRIEND / USER TAGGING MANAGER BLOCK (Ref: image_880e83.png) */}
             <div className="bg-gray-950 border border-gray-800 rounded-2xl p-4 relative">
               <div className="flex justify-between items-center mb-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-gray-300 flex items-center gap-1.5">
@@ -334,7 +454,7 @@ export default function SocialWatermarkWrapper() {
                   </button>
 
                   {showTagDropdown && (
-                    <div className="absolute right-0 mt-2 w-48 bg-gray-900 border border-gray-800 rounded-xl shadow-2xl z-50 p-1 text-xs">
+                    <div className="absolute right-0 mt-2 w-48 bg-gray-900 border border-gray-800 rounded-xl shadow-2xl z-50 p-1 text-xs max-h-48 overflow-y-auto">
                       {availableUsersPool.filter(u => !activeAsset.taggedUsers.includes(u)).map(user => (
                         <button 
                           key={user}
@@ -344,47 +464,56 @@ export default function SocialWatermarkWrapper() {
                           @{user}
                         </button>
                       ))}
+                      {availableUsersPool.filter(u => !activeAsset.taggedUsers.includes(u)).length === 0 && (
+                        <div className="p-2 text-center text-gray-500 text-[10px]">All available users tagged</div>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Tag Output Render Stream List */}
               <div className="flex flex-wrap gap-1.5">
                 {activeAsset.taggedUsers.map(user => (
                   <span key={user} className="bg-gray-900 border border-gray-800 text-[11px] text-indigo-300 px-2.5 py-1 rounded-md font-mono flex items-center gap-1">
                     @{user}
                     <X 
-                      className="w-3 h-3 text-gray-500 hover:text-red-400 cursor-pointer" 
-                      onClick={() => setActiveAsset(p => ({ ...p, taggedUsers: p.taggedUsers.filter(u => u !== user) }))} 
+                      className="w-3 h-3 text-gray-500 hover:text-red-400 cursor-pointer shrink-0" 
+                      onClick={() => {
+                        setActiveAsset(p => ({ ...p, taggedUsers: p.taggedUsers.filter(u => u !== user) }));
+                        triggerInternalNotification('tag', `Removed user signature tag link from: @${user}`);
+                      }} 
                     />
                   </span>
                 ))}
+                {activeAsset.taggedUsers.length === 0 && (
+                  <p className="text-[11px] text-gray-500 italic">No users are tagged in this workspace node asset.</p>
+                )}
               </div>
             </div>
 
-            {/* COMMENTS REAL-TIME REPOSITORY HOOK (Ref: image_880e83.png Requirement) */}
             <div className="bg-gray-950 border border-gray-800 rounded-2xl p-4 flex flex-col h-[345px] justify-between">
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-gray-300 mb-3 flex items-center gap-1.5">
                   <MessageSquare className="w-3.5 h-3.5 text-indigo-400" /> Thread Interaction Comments
                 </h3>
                 
-                {/* Scrollable Comment Array Window Viewport */}
-                <div className="space-y-3 overflow-y-auto max-h-[220px] pr-1">
+                <div className="space-y-3 overflow-y-auto h-[210px] pr-1 scrollbar-thin">
                   {activeAsset.comments.map(comment => (
-                    <div key={comment.id} className="bg-gray-900/40 p-2.5 rounded-xl border border-gray-900 text-xs space-y-1">
+                    <div key={comment.id} className="bg-gray-900/50 p-2.5 rounded-xl border border-gray-900/60 text-xs space-y-1">
                       <div className="flex justify-between items-center text-[10px]">
                         <span className="font-bold text-gray-300 font-mono">@{comment.author}</span>
-                        <span className="bg-gray-800 px-1.5 py-0.2 rounded text-gray-500 text-[9px]">{comment.role}</span>
+                        <span className="bg-gray-800 px-1.5 py-0.2 rounded text-indigo-400 text-[9px] font-semibold">{comment.role}</span>
                       </div>
-                      <p className="text-gray-300 leading-relaxed">{comment.text}</p>
+                      <p className="text-gray-300 leading-relaxed font-sans">{comment.text}</p>
+                      <p className="text-[8px] text-gray-600 font-mono text-right">{comment.timestamp}</p>
                     </div>
                   ))}
+                  {activeAsset.comments.length === 0 && (
+                    <p className="text-center text-gray-500 text-xs py-8 italic">No comments written yet. Leave a tracking comment below!</p>
+                  )}
                 </div>
               </div>
 
-              {/* Bottom Target Comment Form Submission Box */}
               <form onSubmit={submitNewComment} className="relative mt-2">
                 <input 
                   type="text" 
@@ -405,10 +534,63 @@ export default function SocialWatermarkWrapper() {
           </div>
         </div>
 
-        {/* REUSE SHARING HUD DIALOG MODAL (Ref: image_88045d.png corrected section) */}
+        {/* CUSTOM MODAL HUD DISPLAY TO AVOID BROWSER ALERTS */}
+        {activeSecureLog && (
+          <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-4">
+            <div className="bg-[#0b0c16] border-2 border-indigo-500/40 w-full max-w-md rounded-2xl p-6 space-y-5 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500" />
+              
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-indigo-400" />
+                  <span className="text-xs font-bold text-indigo-300 uppercase tracking-widest font-mono">Secure Download Registry</span>
+                </div>
+                <button 
+                  onClick={() => setActiveSecureLog(null)}
+                  className="p-1 rounded-lg bg-gray-900/60 hover:bg-gray-800 text-gray-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-4 text-xs font-mono">
+                <div className="p-3 bg-gray-950/80 rounded-xl border border-gray-800/80 space-y-2">
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wider">Watermark Verification Stamp</div>
+                  <div className="text-emerald-400 font-bold break-all bg-emerald-950/20 px-2 py-1.5 rounded border border-emerald-950/40">
+                    {activeSecureLog.watermarkText}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-gray-950/80 rounded-xl border border-gray-800/80 space-y-1">
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wider">Asset S3 Path Link</div>
+                  <div className="text-gray-300 break-all text-[11px] leading-relaxed select-all">
+                    {activeSecureLog.s3Path}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-gray-950/80 rounded-xl border border-gray-800/80 space-y-1 flex items-center justify-between">
+                  <span className="text-[10px] text-gray-500 uppercase tracking-wider">Active Execution Token</span>
+                  <span className="text-xs font-bold text-indigo-400 bg-indigo-950/60 px-2.5 py-0.5 rounded-full border border-indigo-900/40">
+                    {activeSecureLog.role}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  onClick={() => setActiveSecureLog(null)}
+                  className="px-5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110 text-white rounded-xl text-xs font-bold shadow-lg transition-all active:scale-95 cursor-pointer"
+                >
+                  Verify & Proceed
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showShareModal && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-gray-950 border border-gray-800 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl animate-scaleUp">
+            <div className="bg-gray-950 border border-gray-800 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl">
               <div className="flex justify-between items-center border-b border-gray-800 pb-2">
                 <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Share Media Configuration</span>
                 <X className="w-4 h-4 text-gray-500 hover:text-white cursor-pointer" onClick={() => setShowShareModal(false)} />
@@ -417,15 +599,24 @@ export default function SocialWatermarkWrapper() {
               
               <div className="space-y-2">
                 <button 
-                  onClick={() => { navigator.clipboard.writeText(window.location.href); alert("Asset path captured to clip buffers successfully."); setShowShareModal(false); }}
-                  className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded-xl p-3 flex items-center justify-between text-xs transition-colors text-gray-200 hover:text-white cursor-pointer"
+                  onClick={() => { 
+                    if (typeof window !== 'undefined') {
+                      navigator.clipboard.writeText(window.location.href); 
+                      alert("Asset path captured to clip buffers successfully."); 
+                    }
+                    setShowShareModal(false); 
+                  }}
+                  className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded-xl p-3 flex items-center justify-between text-xs transition-colors text-gray-200 hover:text-white cursor-pointer text-left"
                 >
                   <span className="flex items-center gap-2"><Link2 className="w-4 h-4 text-indigo-400" /> Copy Application URL Node</span>
                   <ArrowRight className="w-3.5 h-3.5 text-gray-500" />
                 </button>
                 <button 
-                  onClick={() => { alert("Public broadcast deployed to shared organizational campaign pools."); setShowShareModal(false); }}
-                  className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded-xl p-3 flex items-center justify-between text-xs transition-colors text-gray-200 hover:text-white cursor-pointer"
+                  onClick={() => { 
+                    alert("Public broadcast deployed to shared organizational campaign pools."); 
+                    setShowShareModal(false); 
+                  }}
+                  className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded-xl p-3 flex items-center justify-between text-xs transition-colors text-gray-200 hover:text-white cursor-pointer text-left"
                 >
                   <span className="flex items-center gap-2"><Globe className="w-4 h-4 text-emerald-400" /> Push to Club Space Gallery Feed</span>
                   <ArrowRight className="w-3.5 h-3.5 text-gray-500" />
@@ -435,10 +626,23 @@ export default function SocialWatermarkWrapper() {
           </div>
         )}
 
-        {/* HIDDEN BACKGROUND WATERMARK PROCESSING CANVAS FRAME ELEMENT */}
         <canvas ref={canvasRef} className="hidden" />
 
       </div>
     </div>
+  );
+}
+
+export default function App({ 
+  initialAssetData, 
+  onCloseRequested 
+}: SocialWatermarkWrapperProps) {
+  return (
+    <RoleProvider>
+      <SocialWatermarkContent 
+        initialAssetData={initialAssetData} 
+        onCloseRequested={onCloseRequested}
+      />
+    </RoleProvider>
   );
 }
