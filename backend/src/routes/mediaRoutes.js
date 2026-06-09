@@ -68,6 +68,17 @@ function fileToGenerativePart(filePath, mimeType) {
 }
 
 // =========================================================================
+// 0. BASE ROUTE FOR THE ROUTER PATH
+// =========================================================================
+router.get('/', (req, res) => {
+  try {
+    return res.status(200).json(globalDatabaseCatalog);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// =========================================================================
 // 1. BULK UPLOAD + CUSTOM EVENT WISE FOLDER NESTING DISTRIBUTION
 // =========================================================================
 router.post('/bulk-upload', upload.array('photos', 50), async (req, res) => {
@@ -85,8 +96,7 @@ router.post('/bulk-upload', upload.array('photos', 50), async (req, res) => {
       eventFolderSegment = customEventInput.trim().replace(/[^a-zA-Z0-9\s-_]/g, "").replace(/\s+/g, "_");
     }
 
-    // 🚀 NEW FALLBACK: If no files are attached, seamlessly handle empty directory initialization!
-    // 🚀 EVENT INITIALIZER FALLBACK: Creates the physical folder AND registers it to the visible catalog!
+    // EVENT INITIALIZER FALLBACK: Creates the physical folder AND registers it to the visible catalog!
     if (files.length === 0) {
       if (eventFolderSegment === "General_Pool") {
         return res.status(400).json({ success: false, error: "Cannot create empty generic pool. Please provide an Event Name." });
@@ -216,8 +226,10 @@ router.post('/bulk-upload', upload.array('photos', 50), async (req, res) => {
       // Relocate file synchronously
       fs.renameSync(file.path, finalPhysicalPath);
 
-      // The web URL folder route now matches the nested dynamic structure exactly
-      const webFriendlyUrl = `http://localhost:5000/uploads/${eventFolderSegment}/${assignedFolder}/${cleanFilename}`;
+      // RESOLVED FIX: Dynamic protocol/host mapping handles both development and production domains flawlessly
+      const protocol = req.protocol;
+      const host = req.get('host');
+      const webFriendlyUrl = `${protocol}://${host}/uploads/${eventFolderSegment}/${assignedFolder}/${cleanFilename}`;
 
       const generatedAsset = {
         id: Number(Date.now() + Math.floor(Math.random() * 100000)),
@@ -287,7 +299,8 @@ router.post('/face-match', upload.single('referenceSelfie'), async (req, res) =>
     const matchedGalleryItems = [];
 
     for (const asset of globalDatabaseCatalog) {
-      if (!asset.s3_optimized_url.includes('localhost:5000')) continue;
+      // RESOLVED FIX: Replaced localhost logic with standard path matching to prevent skipping items on Render
+      if (!asset.s3_optimized_url.includes('/uploads/')) continue;
 
       // Extract the nested relative path cleanly from the URL string
       const relativeUrlPath = asset.s3_optimized_url.split('/uploads/')[1];
