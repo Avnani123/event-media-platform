@@ -6,7 +6,7 @@ import {
   AlertTriangle, ArrowRight, Battery, Cpu, Radio, HardDrive, 
   Tag, Flame, Eye, Sparkles, FileImage, ShieldAlert, Check
 } from 'lucide-react';
-import { useRole } from "../context/RoleContext";
+import { useRole, UserRole } from "../context/RoleContext";
 
 interface LocalJobAssignment {
   id: string;
@@ -70,29 +70,13 @@ export default function PhotographerDashboard() {
     
     setIngestionStatus("Streaming raw image stream buffers to staging S3 buckets...");
     
-    // FIXED: Mapped mock tags to mirror database entries parsed via SearchFilters ('Tech', 'Crowd', 'Abstract')
-    const globalTagPool = ['Main Stage', 'Crowd', 'Presentation', 'Tech', 'Outdoor', 'Abstract', 'Digital', 'Pixelated'];
-
-    const simulatedArray: PreTagImage[] = Array.from(files).map(file => {
-      // Intelligently infer tags from file strings if possible, otherwise randomize valid parameters
-      const normalizedName = file.name.toLowerCase();
-      let selectedTags: string[] = [];
-
-      if (normalizedName.includes('tech') || normalizedName.includes('code')) {
-        selectedTags = ['Tech', 'Presentation'];
-      } else if (normalizedName.includes('download') || normalizedName.includes('abstract')) {
-        selectedTags = ['Abstract', 'Digital', 'Pixelated'];
-      } else {
-        selectedTags = [...globalTagPool].sort(() => 0.5 - Math.random()).slice(0, 3);
-      }
-
-      return {
-        name: file.name,
-        size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
-        predictedTags: selectedTags,
-        confidence: Math.floor(Math.random() * (99 - 85 + 1) + 85)
-      };
-    });
+    // Feature Upgrade: Generate instant pre-tag diagnostics on upload interaction
+    const simulatedArray: PreTagImage[] = Array.from(files).map(file => ({
+      name: file.name,
+      size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
+      predictedTags: ["On-Stage", "Tech Event", "Dynamic Lighting", "Candidate Profile"].sort(() => 0.5 - Math.random()).slice(0, 3),
+      confidence: Math.floor(Math.random() * (99 - 85 + 1) + 85)
+    }));
     
     setSimulatedMetadata(simulatedArray);
 
@@ -122,7 +106,7 @@ export default function PhotographerDashboard() {
             <h1 className="text-2xl font-extrabold tracking-tight mt-1">Photographer Workspace</h1>
           </div>
           
-          {/* HARDWARE TELEMETRY */}
+          {/* HARDWARE TELEMETRY FEATURE */}
           <div className="flex items-center gap-4 bg-gray-950 px-4 py-2 rounded-xl border border-gray-800 text-xs">
             <div className="flex items-center gap-1.5 border-r border-gray-800 pr-3">
               <Battery className={`w-4 h-4 ${batteryLevel < 20 ? 'text-red-500 animate-pulse' : 'text-emerald-400'}`} />
@@ -138,31 +122,28 @@ export default function PhotographerDashboard() {
         {/* WORKSPACE NAVIGATION BAR */}
         <div className="flex overflow-x-auto gap-2 bg-gray-950 p-1.5 rounded-xl border border-gray-800 text-xs mb-8">
           <button 
-            type="button"
             onClick={() => setActiveTab('upload')} 
-            className={`px-4 py-2.5 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'upload' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+            className={`px-4 py-2.5 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'upload' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
           >
-            <UploadCloud className="w-3.5 h-3.5" /> Ingestion & AI Tag Previews
+            <UploadCloud className="w-3.5 h-3.5 inline mr-1.5" /> Ingestion & AI Tag Previews
           </button>
           <button 
-            type="button"
             onClick={() => setActiveTab('assignments')} 
-            className={`px-4 py-2.5 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'assignments' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+            className={`px-4 py-2.5 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'assignments' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
           >
-            <ClipboardList className="w-3.5 h-3.5" /> Direct Field Assignments ({jobs.filter(j => j.status !== 'Dispatched').length})
+            <ClipboardList className="w-3.5 h-3.5 inline mr-1.5" /> Direct Field Assignments ({jobs.filter(j => j.status !== 'Dispatched').length})
           </button>
           <button 
-            type="button"
             onClick={() => setActiveTab('gear')} 
-            className={`px-4 py-2.5 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${activeTab === 'gear' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+            className={`px-4 py-2.5 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === 'gear' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
           >
-            <Sliders className="w-3.5 h-3.5" /> Calibration Checks
+            <Sliders className="w-3.5 h-3.5 inline mr-1.5" /> Calibration Checks
           </button>
         </div>
 
         {/* TAB 1: ASSET STREAMING PIPELINE & AI TAG PREVIEWER */}
         {activeTab === 'upload' && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fadeIn">
             <div className="bg-gradient-to-b from-[#121324] to-[#0c0d1a] border border-gray-800 rounded-2xl p-6">
               <h3 className="text-sm font-bold text-gray-200 uppercase tracking-wider mb-4">Direct Content Stream Tunnel</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -212,9 +193,9 @@ export default function PhotographerDashboard() {
               </div>
             </div>
 
-            {/* AI PRE-TAG DIAGNOSTIC MATRIX */}
+            {/* UPGRADE FEATURE: REAL-TIME AI PRE-TAG DIAGNOSTIC MATRIX */}
             {simulatedMetadata.length > 0 && (
-              <div className="bg-gray-950 border border-gray-800 rounded-2xl p-6">
+              <div className="bg-gray-950 border border-gray-800 rounded-2xl p-6 animate-fadeIn">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-gray-300 mb-4 flex items-center gap-1.5">
                   <Tag className="w-4 h-4 text-indigo-400" /> Ingestion Staging Layer Pre-Tags Preview
                 </h4>
@@ -249,7 +230,7 @@ export default function PhotographerDashboard() {
 
         {/* TAB 2: LIVE FIELD WORK ASSIGNMENTS */}
         {activeTab === 'assignments' && (
-          <div className="space-y-4">
+          <div className="space-y-4 animate-fadeIn">
             {jobs.map((job) => (
               <div key={job.id} className="bg-gray-900/40 border border-gray-800 rounded-xl p-5 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
                 <div>
@@ -270,7 +251,6 @@ export default function PhotographerDashboard() {
 
                 {job.status !== 'Dispatched' && (
                   <button 
-                    type="button"
                     onClick={() => advanceJobStatus(job.id)}
                     className="sm:self-center px-4 py-2 bg-gray-950 hover:bg-indigo-600 border border-gray-800 hover:border-indigo-500 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 group shrink-0 cursor-pointer"
                   >
@@ -285,7 +265,7 @@ export default function PhotographerDashboard() {
 
         {/* TAB 3: CALIBRATION CHECKS & LOADOUTS */}
         {activeTab === 'gear' && (
-          <div className="bg-gray-900/30 border border-gray-800 rounded-2xl p-6">
+          <div className="bg-gray-900/30 border border-gray-800 rounded-2xl p-6 animate-fadeIn">
             <div className="flex items-center gap-2 text-indigo-400 mb-3">
               <Radio className="w-4 h-4 animate-pulse" />
               <h3 className="text-sm font-bold text-gray-200 uppercase tracking-wider">Field Loadout Wireless Check</h3>

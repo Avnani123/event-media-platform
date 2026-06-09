@@ -66,19 +66,12 @@ export default function ViewerDashboard() {
     }
   };
 
-  // FIXED: Filter pipeline logic safely normalizes casing and prevents search deadlocks
+  // Filter pipeline logic based on search queries and biometrics matching criteria
   const displayedPhotos = publicPhotos.filter(photo => {
-    const cleanedQuery = searchQuery.toLowerCase().trim();
-    
-    // If search filter input is empty, skip computation pass
-    if (!cleanedQuery) {
-      return filterMode === 'tagged' ? photo.is_user_tagged : true;
-    }
-
     const matchesSearch = 
-      photo.title.toLowerCase().includes(cleanedQuery) ||
-      photo.eventName.toLowerCase().includes(cleanedQuery) ||
-      photo.ai_tags.some(tag => tag.toLowerCase().includes(cleanedQuery));
+      photo.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      photo.eventName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      photo.ai_tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()));
     
     if (filterMode === 'tagged') {
       return matchesSearch && photo.is_user_tagged;
@@ -103,14 +96,12 @@ export default function ViewerDashboard() {
           {/* QUICK CONTROLS TOGGLE BAR */}
           <div className="flex items-center gap-3 bg-gray-950 p-1.5 rounded-xl border border-gray-800 text-xs w-full md:w-auto">
             <button 
-              type="button"
               onClick={() => setFilterMode('all')}
               className={`flex-1 md:flex-none px-4 py-2 rounded-lg font-bold transition-all cursor-pointer ${filterMode === 'all' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
             >
               <Image className="w-3.5 h-3.5 inline mr-1.5" /> All Event Photos
             </button>
             <button 
-              type="button"
               onClick={() => setFilterMode('tagged')}
               className={`flex-1 md:flex-none px-4 py-2 rounded-lg font-bold transition-all relative cursor-pointer ${filterMode === 'tagged' ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-gray-950 shadow' : 'text-gray-400 hover:text-white'}`}
             >
@@ -197,7 +188,6 @@ export default function ViewerDashboard() {
                     {/* Operational Actions */}
                     <div className="border-t border-gray-800/60 pt-3 flex items-center justify-between">
                       <button 
-                        type="button"
                         onClick={() => toggleLocalLike(photo.id)}
                         className={`flex items-center gap-1.5 text-xs font-semibold px-2 py-1 rounded-lg transition-colors cursor-pointer ${
                           isLiked ? 'text-rose-400 bg-rose-500/10' : 'text-gray-400 hover:text-rose-400 hover:bg-rose-500/5'
@@ -208,7 +198,6 @@ export default function ViewerDashboard() {
                       </button>
 
                       <button 
-                        type="button"
                         onClick={() => handleSecureDownload(photo.id, photo.title)}
                         className="flex items-center gap-1 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-400 hover:text-white border border-indigo-500/20 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer"
                       >
