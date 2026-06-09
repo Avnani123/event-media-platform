@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, createContext, useContext } from 'react';
 import { 
   Heart, MessageSquare, Share2, Download, Star, UserPlus, Bell, 
-  X, Shield, Send, Globe, Link2, ArrowRight, ShieldCheck, Check
+  X, Shield, Send, Globe, Link2, ArrowRight, ShieldCheck, Check, Search
 } from 'lucide-react';
 
 // Create a local Role Context to guarantee error-free compilation and full standalone execution
@@ -47,6 +47,13 @@ interface PhotoComment {
   timestamp: string;
 }
 
+// Updated Tag interface with relative coordinates for absolute rendering over image
+interface VisualTag {
+  username: string;
+  xPercentage: number; // e.g., 35 for 35% from left
+  yPercentage: number; // e.g., 50 for 50% from top
+}
+
 interface EnhancedMediaAsset {
   id: number;
   title: string;
@@ -56,7 +63,7 @@ interface EnhancedMediaAsset {
   likes_count: number;
   comments: PhotoComment[];
   is_favourite: boolean;
-  taggedUsers: string[];
+  taggedUsers: VisualTag[]; 
 }
 
 interface SocialWatermarkWrapperProps {
@@ -64,12 +71,15 @@ interface SocialWatermarkWrapperProps {
   onCloseRequested?: () => void;
 }
 
-function SocialWatermarkContent({ 
+export default function SocialWatermarkContent({ 
   initialAssetData, 
   onCloseRequested 
 }: SocialWatermarkWrapperProps) {
   const { activeRole, setActiveRole } = useRole(); 
   
+  // State for search query input (Fixed unterminated string)
+  const [searchQuery, setSearchQuery] = useState<string>("");
+
   const [activeAsset, setActiveAsset] = useState<EnhancedMediaAsset>({
     id: initialAssetData?.id || 808,
     title: initialAssetData?.title || "Grand Finale Hackathon Awards Night",
@@ -78,7 +88,10 @@ function SocialWatermarkContent({
     s3_optimized_url: initialAssetData?.s3_optimized_url || "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&auto=format&fit=crop&q=80",
     likes_count: initialAssetData?.likes_count !== undefined ? initialAssetData.likes_count : 142,
     is_favourite: initialAssetData?.is_favourite || false,
-    taggedUsers: initialAssetData?.taggedUsers || ["Alex_Dev", "Sarah_Design"],
+    taggedUsers: initialAssetData?.taggedUsers || [
+      { username: "Alex_Dev", xPercentage: 30, yPercentage: 40 },
+      { username: "Sarah_Design", xPercentage: 65, yPercentage: 55 }
+    ],
     comments: initialAssetData?.comments || [
       { id: "c1", author: "Rohan Sharma", role: "Club Member", text: "Incredible shot! The main stage lighting looks pristine.", timestamp: "10m ago" },
       { id: "c2", author: "Emily Watson", role: "Photographer", text: "Captured on a 24-70mm lens profile f/2.8 setup.", timestamp: "2m ago" }
@@ -95,7 +108,10 @@ function SocialWatermarkContent({
         s3_optimized_url: initialAssetData.s3_optimized_url || "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&auto=format&fit=crop&q=80",
         likes_count: initialAssetData.likes_count !== undefined ? initialAssetData.likes_count : 142,
         is_favourite: initialAssetData.is_favourite || false,
-        taggedUsers: initialAssetData.taggedUsers || ["Alex_Dev", "Sarah_Design"],
+        taggedUsers: initialAssetData.taggedUsers || [
+          { username: "Alex_Dev", xPercentage: 30, yPercentage: 40 },
+          { username: "Sarah_Design", xPercentage: 65, yPercentage: 55 }
+        ],
         comments: initialAssetData.comments || []
       });
     }
@@ -105,7 +121,7 @@ function SocialWatermarkContent({
   const [showTagDropdown, setShowTagDropdown] = useState<boolean>(false);
   const [showShareModal, setShowShareModal] = useState<boolean>(false);
   const [commentInput, setCommentInput] = useState<string>("");
-  const [showNotifications, setShowNotifications] = useState<boolean>(true);
+  const [showNotifications, setShowNotifications] = useState<boolean>(false);
   const [showRoleSelector, setShowRoleSelector] = useState<boolean>(false);
   
   const [activeSecureLog, setActiveSecureLog] = useState<{
@@ -235,10 +251,17 @@ function SocialWatermarkContent({
   };
 
   const injectUserTag = (username: string) => {
-    if (activeAsset.taggedUsers.includes(username)) return;
+    if (activeAsset.taggedUsers.some(t => t.username === username)) return;
+    
+    const newTag: VisualTag = {
+      username,
+      xPercentage: Math.floor(Math.random() * 50) + 20, 
+      yPercentage: Math.floor(Math.random() * 50) + 20
+    };
+
     setActiveAsset(prev => ({
       ...prev,
-      taggedUsers: [...prev.taggedUsers, username]
+      taggedUsers: [...prev.taggedUsers, newTag]
     }));
     setShowTagDropdown(false);
     triggerInternalNotification('tag', `Someone tagged @${username} inside a folder asset workspace node`);
@@ -248,6 +271,7 @@ function SocialWatermarkContent({
 
   return (
     <div className="min-h-screen bg-[#060713] text-white p-4 md:p-6 pb-24 relative">
+      <canvas ref={canvasRef} className="hidden" />
       <div className="max-w-6xl mx-auto">
         
         {/* UPPER INTERFACE ACTION MATRIX HEADER */}
@@ -350,11 +374,35 @@ function SocialWatermarkContent({
           </div>
         </div>
 
+        {/* DYNAMIC SEARCH COMPONENT PILL */}
+        <div className="mb-6 max-w-md">
+          <div className="relative">
+            <Search className="w-4 h-4 text-gray-500 absolute left-3.5 top-3" />
+            <input 
+              type="text"
+              placeholder="Search tagged users (e.g., Alex_Dev)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-gray-950 border border-gray-800 rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all"
+            />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery("")} 
+                className="absolute right-3 top-2.5 text-gray-500 hover:text-white text-xs"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* MAIN DISPLAY VIEWPORT BLOCK CONTAINER LAYOUT */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
           
           {/* LEFT PANEL AREA: CENTRAL MEDIA DISPLAY PIPELINE */}
           <div className="lg:col-span-2 space-y-4">
+            
+            {/* IMAGE WRAPPER */}
             <div className="relative rounded-2xl overflow-hidden border border-gray-800 bg-gray-950 group shadow-2xl flex items-center justify-center min-h-[300px]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img 
@@ -363,7 +411,27 @@ function SocialWatermarkContent({
                 className="w-full h-auto max-h-[500px] object-contain mx-auto block"
               />
               
-              <div className="absolute bottom-4 left-4 right-4 bg-black/85 backdrop-blur-md border border-white/5 p-3 rounded-xl flex items-center justify-between text-xs">
+              {/* DYNAMIC FLOATING IMAGE TAG LAYER */}
+              {activeAsset.taggedUsers.map((tag) => {
+                const isMatchedBySearch = searchQuery.trim() !== "" && 
+                  tag.username.toLowerCase().includes(searchQuery.toLowerCase());
+
+                return (
+                  <div
+                    key={tag.username}
+                    className={`absolute p-1.5 px-2.5 text-[11px] font-mono rounded-lg border transition-all pointer-events-auto backdrop-blur-md shadow-xl ${
+                      isMatchedBySearch 
+                        ? 'bg-amber-500 border-amber-300 text-black font-extrabold scale-110 ring-4 ring-amber-500/30 z-30' 
+                        : 'bg-black/75 border-white/20 text-indigo-300 hover:bg-indigo-950/90 hover:border-indigo-500 z-20'
+                    }`}
+                    style={{ left: `${tag.xPercentage}%`, top: `${tag.yPercentage}%` }}
+                  >
+                    @{tag.username}
+                  </div>
+                );
+              })}
+
+              <div className="absolute bottom-4 left-4 right-4 bg-black/85 backdrop-blur-md border border-white/5 p-3 rounded-xl flex items-center justify-between text-xs z-10">
                 <div>
                   <p className="font-bold text-white truncate max-w-[200px] sm:max-w-md">{activeAsset.title}</p>
                   <p className="text-[10px] text-gray-400 truncate max-w-[200px]">{activeAsset.eventName} • {activeAsset.clubName}</p>
@@ -403,9 +471,12 @@ function SocialWatermarkContent({
                   <span>{activeAsset.is_favourite ? "Favorited" : "Add to Favourites"}</span>
                 </button>
 
-                {/* MODAL DISPLAY TOGGLE */}
+                {/* SHARE TRIGGER DETECTOR */}
                 <button 
-                  onClick={() => setShowShareModal(true)}
+                  onClick={() => {
+                    setShowShareModal(true);
+                    triggerInternalNotification('tag', "Generated dynamic asset access tokens for secure link sharing.");
+                  }}
                   className="flex items-center gap-1.5 text-xs font-bold bg-gray-950 hover:bg-gray-900 border border-gray-800 text-gray-400 hover:text-white px-3 py-2 rounded-xl transition-all cursor-pointer"
                 >
                   <Share2 className="w-4 h-4 text-sky-400" />
@@ -413,7 +484,7 @@ function SocialWatermarkContent({
                 </button>
               </div>
 
-              {/* FIXED DYNAMIC CANVAS DOWNLOAD EXECUTION TRIGGER */}
+              {/* CANVAS DOWNLOAD EXECUTION TRIGGER */}
               <button 
                 onClick={executeDynamicWatermarkedDownload}
                 className="flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-lg active:scale-95 cursor-pointer w-full sm:w-auto"
@@ -437,6 +508,7 @@ function SocialWatermarkContent({
             </div>
           </div>
 
+          {/* RIGHT SIDEBAR LAYOUT */}
           <div className="space-y-6">
             
             <div className="bg-gray-950 border border-gray-800 rounded-2xl p-4 relative">
@@ -455,7 +527,7 @@ function SocialWatermarkContent({
 
                   {showTagDropdown && (
                     <div className="absolute right-0 mt-2 w-48 bg-gray-900 border border-gray-800 rounded-xl shadow-2xl z-50 p-1 text-xs max-h-48 overflow-y-auto">
-                      {availableUsersPool.filter(u => !activeAsset.taggedUsers.includes(u)).map(user => (
+                      {availableUsersPool.filter(u => !activeAsset.taggedUsers.some(t => t.username === u)).map(user => (
                         <button 
                           key={user}
                           onClick={() => injectUserTag(user)}
@@ -464,7 +536,7 @@ function SocialWatermarkContent({
                           @{user}
                         </button>
                       ))}
-                      {availableUsersPool.filter(u => !activeAsset.taggedUsers.includes(u)).length === 0 && (
+                      {availableUsersPool.filter(u => !activeAsset.taggedUsers.some(t => t.username === u)).length === 0 && (
                         <div className="p-2 text-center text-gray-500 text-[10px]">All available users tagged</div>
                       )}
                     </div>
@@ -473,14 +545,21 @@ function SocialWatermarkContent({
               </div>
 
               <div className="flex flex-wrap gap-1.5">
-                {activeAsset.taggedUsers.map(user => (
-                  <span key={user} className="bg-gray-900 border border-gray-800 text-[11px] text-indigo-300 px-2.5 py-1 rounded-md font-mono flex items-center gap-1">
-                    @{user}
+                {activeAsset.taggedUsers.map(tag => (
+                  <span 
+                    key={tag.username} 
+                    className={`border text-[11px] px-2.5 py-1 rounded-md font-mono flex items-center gap-1 transition-all ${
+                      searchQuery.trim() !== "" && tag.username.toLowerCase().includes(searchQuery.toLowerCase())
+                        ? 'bg-amber-950 border-amber-500 text-amber-300 font-bold scale-105'
+                        : 'bg-gray-900 border-gray-800 text-indigo-300'
+                    }`}
+                  >
+                    @{tag.username}
                     <X 
                       className="w-3 h-3 text-gray-500 hover:text-red-400 cursor-pointer shrink-0" 
                       onClick={() => {
-                        setActiveAsset(p => ({ ...p, taggedUsers: p.taggedUsers.filter(u => u !== user) }));
-                        triggerInternalNotification('tag', `Removed user signature tag link from: @${user}`);
+                        setActiveAsset(p => ({ ...p, taggedUsers: p.taggedUsers.filter(u => u.username !== tag.username) }));
+                        triggerInternalNotification('tag', `Removed user signature tag link from: @${tag.username}`);
                       }} 
                     />
                   </span>
@@ -534,7 +613,7 @@ function SocialWatermarkContent({
           </div>
         </div>
 
-        {/* CUSTOM MODAL HUD DISPLAY TO AVOID BROWSER ALERTS */}
+        {/* CUSTOM MODAL HUD DISPLAY */}
         {activeSecureLog && (
           <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-4">
             <div className="bg-[#0b0c16] border-2 border-indigo-500/40 w-full max-w-md rounded-2xl p-6 space-y-5 shadow-2xl relative overflow-hidden">
@@ -575,74 +654,50 @@ function SocialWatermarkContent({
                   </span>
                 </div>
               </div>
-
-              <div className="flex justify-end pt-2">
-                <button
-                  onClick={() => setActiveSecureLog(null)}
-                  className="px-5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110 text-white rounded-xl text-xs font-bold shadow-lg transition-all active:scale-95 cursor-pointer"
-                >
-                  Verify & Proceed
-                </button>
-              </div>
             </div>
           </div>
         )}
 
+        {/* SECURE ACCESS SHARE MODAL IMPLEMENTATION */}
         {showShareModal && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-gray-950 border border-gray-800 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl">
-              <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-                <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Share Media Configuration</span>
-                <X className="w-4 h-4 text-gray-500 hover:text-white cursor-pointer" onClick={() => setShowShareModal(false)} />
-              </div>
-              <p className="text-xs text-gray-400">Generate copy tracking pointers or broadcast downstreams directly to connected student profiles.</p>
-              
-              <div className="space-y-2">
-                <button 
-                  onClick={() => { 
-                    if (typeof window !== 'undefined') {
-                      navigator.clipboard.writeText(window.location.href); 
-                      alert("Asset path captured to clip buffers successfully."); 
-                    }
-                    setShowShareModal(false); 
-                  }}
-                  className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded-xl p-3 flex items-center justify-between text-xs transition-colors text-gray-200 hover:text-white cursor-pointer text-left"
-                >
-                  <span className="flex items-center gap-2"><Link2 className="w-4 h-4 text-indigo-400" /> Copy Application URL Node</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-gray-500" />
+            <div className="bg-gray-950 border border-gray-800 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl relative">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <Share2 className="w-4 h-4 text-indigo-400" />
+                  <h3 className="text-sm font-bold text-white">Share Secure Asset Node</h3>
+                </div>
+                <button onClick={() => setShowShareModal(false)} className="text-gray-500 hover:text-white transition-colors">
+                  <X className="w-4 h-4" />
                 </button>
+              </div>
+              <p className="text-xs text-gray-400 leading-normal">
+                Generate expiring viewer authorization links scoped down to your current profile role profile signature token.
+              </p>
+              <div className="flex gap-2 bg-gray-900 p-2 rounded-xl border border-gray-800 items-center">
+                <Link2 className="w-4 h-4 text-gray-500 shrink-0 ml-1" />
+                <input 
+                  type="text" 
+                  readOnly 
+                  value={`https://platform-node.cluster/share/asset-${activeAsset.id}`} 
+                  className="w-full bg-transparent text-xs text-indigo-300 outline-none select-all font-mono truncate"
+                />
                 <button 
-                  onClick={() => { 
-                    alert("Public broadcast deployed to shared organizational campaign pools."); 
-                    setShowShareModal(false); 
+                  onClick={() => {
+                    navigator.clipboard.writeText(`https://platform-node.cluster/share/asset-${activeAsset.id}`);
+                    triggerInternalNotification('tag', 'Share link metadata mapped directly into local clipboard buffer.');
+                    setShowShareModal(false);
                   }}
-                  className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded-xl p-3 flex items-center justify-between text-xs transition-colors text-gray-200 hover:text-white cursor-pointer text-left"
+                  className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1.5 rounded-lg shrink-0 transition-colors"
                 >
-                  <span className="flex items-center gap-2"><Globe className="w-4 h-4 text-emerald-400" /> Push to Club Space Gallery Feed</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-gray-500" />
+                  Copy
                 </button>
               </div>
             </div>
           </div>
         )}
-
-        <canvas ref={canvasRef} className="hidden" />
 
       </div>
     </div>
-  );
-}
-
-export default function App({ 
-  initialAssetData, 
-  onCloseRequested 
-}: SocialWatermarkWrapperProps) {
-  return (
-    <RoleProvider>
-      <SocialWatermarkContent 
-        initialAssetData={initialAssetData} 
-        onCloseRequested={onCloseRequested}
-      />
-    </RoleProvider>
   );
 }
