@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation'; 
-import { Search, Heart, Download, Sparkles, UploadCloud, FolderPlus, Folder, ArrowLeft, Check, X, ShieldCheck, Trash2, Eye, EyeOff, Sliders, Share2 } from 'lucide-react';
+import { Search, Heart, Download, Sparkles, UploadCloud, FolderPlus, Folder, ArrowLeft, Check, X, ShieldCheck, Trash2, Eye, EyeOff, Sliders, Share2, MessageSquare } from 'lucide-react';
 import { useRole } from '../../context/RoleContext'; 
+import NotificationCenter from '../../components/NotificationCenter';
+import { useNotifications } from '../../components/useNotifications';
 
 // ==========================================
 // 1. TYPE DEFINITIONS & INTERFACES
@@ -32,23 +34,33 @@ interface PendingHandshake {
   timestamp: string;
 }
 
+interface CommentData {
+  id: number;
+  author: string;
+  text: string;
+  timestamp: string;
+}
+
 // ==========================================
-// 2. EMBEDDED WATERMARK MODAL COMPONENT
+// 2. EMBEDDED WATERMARK & COMMENT MODAL COMPONENT
 // ==========================================
 interface WatermarkModalProps {
   asset: MediaAsset;
   onClose: () => void;
   onLikeTriggered: (id: number) => void;
   currentUserRole: string;
+  comments: CommentData[];
+  onAddComment: (assetId: number, newComment: CommentData) => void;
 }
 
-function InteractiveWatermarkModal({ asset, onClose, onLikeTriggered, currentUserRole }: WatermarkModalProps) {
+function InteractiveWatermarkModal({ asset, onClose, onLikeTriggered, currentUserRole, comments, onAddComment }: WatermarkModalProps) {
   const clubName = asset.event?.club_name || "Nexus National Hackathon 2026";
   const eventName = asset.event?.name || "Opening Keynote Address";
   
   const [opacity, setOpacity] = useState(0.45);
   const [fontSizeRatio, setFontSizeRatio] = useState(35);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [commentInput, setCommentInput] = useState('');
 
   const executeDownload = () => {
     setIsDownloading(true);
@@ -104,119 +116,154 @@ function InteractiveWatermarkModal({ asset, onClose, onLikeTriggered, currentUse
     }
   };
 
+  const handlePostCommentSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!commentInput.trim()) return;
+    
+    onAddComment(asset.id, {
+      id: Date.now(),
+      author: currentUserRole === 'Admin' ? '@Active Sandbox Admin' : `@${currentUserRole}`,
+      text: commentInput.trim(),
+      timestamp: 'Just Now'
+    });
+    setCommentInput('');
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="relative max-w-5xl w-full bg-[#0d0e1b] border border-gray-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[90vh]">
+    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+      <div className="relative max-w-6xl w-full bg-[#0d0e1b] border border-gray-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col lg:flex-row max-h-[95vh] lg:h-[85vh]">
         
-        {/* Left Side: Real-time Interactive Preview Layer */}
-        <div className="flex-1 bg-black/40 p-6 flex flex-col items-center justify-center relative min-h-[300px] overflow-hidden">
+        {/* Left Side: Preview Panel */}
+        <div className="flex-1 bg-black/40 p-6 flex flex-col items-center justify-center relative min-h-[300px] lg:h-full overflow-hidden border-b lg:border-b-0 lg:border-r border-gray-800">
           <button 
             onClick={onClose}
-            className="absolute top-4 left-4 md:hidden p-2 bg-gray-900/80 rounded-full border border-gray-800 text-gray-400"
+            className="absolute top-4 left-4 lg:hidden p-2 bg-gray-900/80 rounded-full border border-gray-800 text-gray-400"
           >
             <X className="w-5 h-5" />
           </button>
 
-          <div className="relative max-w-full max-h-[50vh] rounded-lg overflow-hidden border border-gray-800 shadow-xl group">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+          <div className="relative max-w-full max-h-[50vh] lg:max-h-[70vh] rounded-lg overflow-hidden border border-gray-800 shadow-xl group">
             <img 
               src={asset.s3_optimized_url} 
               alt={asset.title || "Preview Matrix"} 
-              className="max-w-full max-h-[50vh] object-contain object-center"
+              className="max-w-full max-h-[50vh] lg:max-h-[70vh] object-contain object-center"
             />
             
-            {/* SocialWatermark Layer Overlay Container */}
             <div 
               style={{ opacity: opacity }}
               className="absolute bottom-4 right-4 text-white font-bold select-none pointer-events-none drop-shadow-[0_4px_6px_rgba(0,0,0,0.8)] text-right transition-all duration-75"
             >
               <div className="text-[10px] md:text-xs bg-black/60 px-3 py-1.5 rounded-lg border border-white/10 backdrop-blur-md">
                 <span className="text-gray-400 block text-[9px] uppercase tracking-wider font-semibold">SocialWatermark Security Node</span>
-                <p className="mt-0.5 text-white tracking-wide">
-                  {clubName} | {eventName}
-                </p>
-                <p className="text-indigo-400 font-medium text-[9px] mt-0.5">
-                  Scope Signature: {currentUserRole}
-                </p>
+                <p className="mt-0.5 text-white tracking-wide">{clubName} | {eventName}</p>
+                <p className="text-indigo-400 font-medium text-[9px] mt-0.5">Scope Signature: {currentUserRole}</p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right Side: Configuration Controller Interface */}
-        <div className="w-full md:w-80 bg-[#111224] border-t md:border-t-0 md:border-l border-gray-800 p-6 flex flex-col justify-between overflow-y-auto">
-          <div>
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-2">
-                <Sliders className="w-4 h-4 text-indigo-400" />
-                <h3 className="text-sm font-bold tracking-wider uppercase text-white">Watermark Engine</h3>
+        {/* Right Side: Configuration & Comments Segment */}
+        <div className="w-full lg:w-[380px] bg-[#111224] p-6 flex flex-col h-auto lg:h-full overflow-y-auto space-y-6">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sliders className="w-4 h-4 text-cyan-400" />
+              <h3 className="text-sm font-bold tracking-wider uppercase text-white">Asset Details & Engine</h3>
+            </div>
+            <button 
+              onClick={onClose}
+              className="hidden lg:block p-1.5 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Context Object Metadata */}
+          <div className="bg-[#060713]/50 p-3 rounded-xl border border-gray-800/60 text-xs">
+            <p className="text-gray-400 font-medium">Target Context Object</p>
+            <p className="font-bold text-white mt-1 truncate">{eventName}</p>
+            <p className="text-[10px] text-indigo-300 mt-0.5 truncate">Hosted by: {clubName}</p>
+          </div>
+
+          {/* Configuration Sliders */}
+          <div className="space-y-4 text-xs">
+            <div className="space-y-1.5">
+              <div className="flex justify-between font-medium">
+                <span className="text-gray-400">Stamp Opacity Translucency</span>
+                <span className="text-cyan-400 font-bold">{Math.round(opacity * 100)}%</span>
               </div>
-              <button 
-                onClick={onClose}
-                className="hidden md:block p-1.5 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <input 
+                type="range" min="0.10" max="1.00" step="0.05" value={opacity} 
+                onChange={(e) => setOpacity(parseFloat(e.target.value))}
+                className="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+              />
             </div>
 
-            <div className="space-y-4 text-xs">
-              <div className="bg-[#060713]/50 p-3 rounded-xl border border-gray-800/60">
-                <p className="text-gray-400 font-medium">Target Context Object</p>
-                <p className="font-bold text-white mt-1 truncate">{eventName}</p>
-                <p className="text-[10px] text-indigo-300 mt-0.5 truncate">Hosted by: {clubName}</p>
+            <div className="space-y-1.5">
+              <div className="flex justify-between font-medium">
+                <span className="text-gray-400">Scale Grid Proportions</span>
+                <span className="text-cyan-400 font-bold">Ratio 1/{fontSizeRatio}</span>
               </div>
-
-              {/* Slider 1: Translucency Parameters */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between font-medium">
-                  <span className="text-gray-400">Stamp Opacity Translucency</span>
-                  <span className="text-indigo-400 font-bold">{Math.round(opacity * 100)}%</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="0.10" 
-                  max="1.00" 
-                  step="0.05"
-                  value={opacity} 
-                  onChange={(e) => setOpacity(parseFloat(e.target.value))}
-                  className="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                />
-              </div>
-
-              {/* Slider 2: Scale Metric Modifier */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between font-medium">
-                  <span className="text-gray-400">Scale Grid Proportions</span>
-                  <span className="text-indigo-400 font-bold">Ratio 1/{fontSizeRatio}</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="20" 
-                  max="60" 
-                  step="2"
-                  value={fontSizeRatio} 
-                  onChange={(e) => setFontSizeRatio(parseInt(e.target.value))}
-                  className="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                />
-              </div>
+              <input 
+                type="range" min="20" max="60" step="2" value={fontSizeRatio} 
+                onChange={(e) => setFontSizeRatio(parseInt(e.target.value))}
+                className="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+              />
             </div>
           </div>
 
-          <div className="space-y-2 mt-6">
+          {/* Real-time Dynamic Comments System */}
+          <div className="flex-1 flex flex-col bg-[#060713]/40 border border-gray-800/80 rounded-xl p-3 space-y-3 min-h-[220px]">
+            <div className="flex items-center justify-between border-b border-gray-800/60 pb-1.5 text-[11px] font-bold text-gray-400 uppercase tracking-wide">
+              <span className="flex items-center gap-1"><MessageSquare className="w-3.5 h-3.5 text-cyan-400" /> Pipeline Activity Log</span>
+              <span className="text-[10px] text-gray-500 font-mono">({comments.length})</span>
+            </div>
+
+            {/* Scrollable Comment Loop */}
+            <div className="flex-1 overflow-y-auto space-y-2 max-h-[160px] pr-1 scrollbar-thin">
+              {comments.length === 0 ? (
+                <p className="text-[11px] text-gray-600 italic text-center pt-6">No workflow commentary registered.</p>
+              ) : (
+                comments.map((c) => (
+                  <div key={c.id} className="bg-[#111224]/80 p-2 border border-gray-800/40 rounded-lg text-[11px] space-y-0.5">
+                    <div className="flex justify-between items-center font-mono text-[10px]">
+                      <span className="text-cyan-400 font-semibold">{c.author}</span>
+                      <span className="text-gray-500">{c.timestamp}</span>
+                    </div>
+                    <p className="text-gray-300 leading-normal font-sans">{c.text}</p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Form Input Anchor */}
+            <form onSubmit={handlePostCommentSubmit} className="flex gap-1.5 pt-1.5 border-t border-gray-800/60">
+              <input 
+                type="text" value={commentInput} onChange={(e) => setCommentInput(e.target.value)}
+                placeholder="Append log record entry..."
+                className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-[11px] text-gray-200 focus:outline-none focus:border-cyan-500 placeholder-gray-600"
+              />
+              <button type="submit" className="bg-cyan-600/20 hover:bg-cyan-600/40 border border-cyan-500/30 text-cyan-400 font-bold px-2.5 py-1 rounded-lg text-[10px] transition-all shrink-0">
+                Post
+              </button>
+            </form>
+          </div>
+
+          {/* Bottom Call to Actions */}
+          <div className="space-y-2 pt-2 border-t border-gray-800/60">
             <button
               onClick={() => onLikeTriggered(asset.id)}
-              className="w-full flex items-center justify-center gap-2 py-2.5 bg-gray-800 hover:bg-gray-700 active:scale-[0.98] transition-all rounded-xl text-xs font-bold text-white cursor-pointer"
+              className="w-full flex items-center justify-center gap-2 py-2 bg-gray-800 hover:bg-gray-700 active:scale-[0.98] transition-all rounded-xl text-xs font-bold text-white cursor-pointer"
             >
-              <Heart className="w-4 h-4 text-pink-500 fill-pink-500" />
+              <Heart className="w-3.5 h-3.5 text-pink-500 fill-pink-500" />
               <span>Increment Like Registry ({asset.likes_count || 0})</span>
             </button>
 
             <button
-              onClick={executeDownload}
-              disabled={isDownloading}
-              className="w-full flex items-center justify-center gap-2 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:brightness-110 active:scale-[0.98] disabled:opacity-40 transition-all rounded-xl text-xs font-bold text-white shadow-lg shadow-indigo-500/10 cursor-pointer"
+              onClick={executeDownload} disabled={isDownloading}
+              className="w-full flex items-center justify-center gap-2 py-2 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:brightness-110 active:scale-[0.98] disabled:opacity-40 transition-all rounded-xl text-xs font-bold text-white shadow-lg cursor-pointer"
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-3.5 h-3.5" />
               <span>{isDownloading ? "Compiling Canvas Asset..." : "Download Secure Stamp"}</span>
             </button>
           </div>
@@ -233,6 +280,7 @@ function InteractiveWatermarkModal({ asset, onClose, onLikeTriggered, currentUse
 export default function GalleryMatrix() {
   const router = useRouter(); 
   const { activeRole } = useRole(); 
+  const { notifications, addNotification, removeNotification } = useNotifications();
   
   const [searchQuery, setSearchQuery] = useState("");
   const [directories, setDirectories] = useState<string[]>(["General_Pool", "Nexus National Hackathon 2026", "Mine"]); 
@@ -243,7 +291,8 @@ export default function GalleryMatrix() {
   const [activeAsset, setActiveAsset] = useState<MediaAsset | null>(null);
   const [currentFolderContext, setCurrentFolderContext] = useState<string | null>(null);
 
-  const [watermarkAsset, setWatermarkAsset] = useState<MediaAsset | null>(null);
+  // Comments State Map System keyed by assetId
+  const [assetCommentsMap, setAssetCommentsMap] = useState<Record<number, CommentData[]>>({});
   const [pendingHandshakes, setPendingHandshakes] = useState<PendingHandshake[]>([]);
 
   const [customEventName, setCustomEventName] = useState("");
@@ -257,7 +306,6 @@ export default function GalleryMatrix() {
   const canModifyStorage = activeRole === 'Admin' || activeRole === 'Photographer';
   const canViewPrivateMedia = activeRole === 'Admin' || activeRole === 'Photographer' || activeRole === 'Club Member';
 
-  // FIXED ENGINE FILTER: Computes searches smoothly across titles, paths, and tags
   const filteredPhotosDisplay = photos.filter(item => {
     const searchString = searchQuery.toLowerCase().trim();
     if (!searchString) return true;
@@ -272,7 +320,6 @@ export default function GalleryMatrix() {
     return !!(matchesTitle || matchesTags || matchesEvent || matchesUrl);
   });
 
-  // FIXED DIRECTORY LIST FILTER: Filters folder listing blocks based on search string when no folder is selected
   const filteredDirectoriesDisplay = directories.filter(dir => {
     const searchString = searchQuery.toLowerCase().trim();
     if (currentFolderContext || !searchString) return true;
@@ -380,6 +427,7 @@ export default function GalleryMatrix() {
 
     if (confirm(`Are you sure you want to remove the empty directory slot "${directoryName}"?`)) {
       setDirectories(prev => prev.filter(d => d !== directoryName));
+      addNotification(`Purged empty storage container: ${directoryName}`);
     }
   };
 
@@ -398,13 +446,13 @@ export default function GalleryMatrix() {
       });
 
       if (response.ok) {
-        alert("Asset securely purged from cloud registers successfully.");
         setPhotos(prev => prev.filter(p => p.id !== mediaId));
         if (activeAsset?.id === mediaId) setActiveAsset(null);
+        addNotification("Media file securely cleared from operational register mapping.");
       } else {
         setPhotos(prev => prev.filter(p => p.id !== mediaId));
         if (activeAsset?.id === mediaId) setActiveAsset(null);
-        alert("Erase command broadcast completed across client cache cluster boundary node.");
+        addNotification("Erase command broadcast processed across system cache clusters.");
       }
     } catch (err) {
       console.error("Administrative execution exception:", err);
@@ -430,6 +478,7 @@ export default function GalleryMatrix() {
       if (activeAsset?.id === item.id) {
         setActiveAsset(prev => prev ? { ...prev, is_public: updatedVisibility } : null);
       }
+      addNotification(`Asset context successfully altered to: ${updatedVisibility ? 'PUBLIC' : 'PRIVATE'}`);
     } catch (err) {
       console.error("Visibility toggling dropped pipeline reference:", err);
     }
@@ -442,8 +491,6 @@ export default function GalleryMatrix() {
       fetchLiveHandshakes();
     };
     window.addEventListener('storage', handleStorageUpdate);
-
-    // Sync state properly when layout shifts folder contexts
     fetchPhotosForContext(currentFolderContext, "");
 
     return () => {
@@ -465,7 +512,7 @@ export default function GalleryMatrix() {
       const formData = new FormData();
       formData.append("eventName", targetedName);
       formData.append("clubName", customClubName.trim() || "Active Sandbox Admin");
-      formData.append("eventDescription", customDescription.trim() || "Isolated Access-Controlled Workspace Container.");
+      formData.append("eventDescription", customDescription.trim() || "Isolated Access-Controlled Workspace Workspace.");
       formData.append("username", "Event Organiser");
       formData.append("isPublic", String(isNewFolderPublic));
 
@@ -475,20 +522,12 @@ export default function GalleryMatrix() {
         body: formData
       });
 
-      if (response.ok) {
-        alert(`📁 Storage Cluster "${targetedName}" created with [${isNewFolderPublic ? 'PUBLIC' : 'PRIVATE'}] security context!`);
-        setDirectories(prev => Array.from(new Set([...prev, targetedName])));
-        setCustomEventName("");
-        setCustomClubName("");
-        setCustomDescription("");
-        setCurrentFolderContext(targetedName);
-      } else {
-        setDirectories(prev => Array.from(new Set([...prev, targetedName])));
-        setCurrentFolderContext(targetedName);
-        setCustomEventName("");
-        setCustomClubName("");
-        setCustomDescription("");
-      }
+      addNotification(`📁 Instantiated active cluster node entry: "${targetedName}"`);
+      setDirectories(prev => Array.from(new Set([...prev, targetedName])));
+      setCustomEventName("");
+      setCustomClubName("");
+      setCustomDescription("");
+      setCurrentFolderContext(targetedName);
     } catch (err) {
       console.error("Folder routing interruption:", err);
     } finally {
@@ -525,7 +564,7 @@ export default function GalleryMatrix() {
       });
 
       if (response.ok) {
-        alert(`🎉 Success! ${uploadedFiles.length} assets verified & pushed inside "${currentActiveWorkspace}".`);
+        addNotification(`🚀 Pushed ${uploadedFiles.length} raw assets inside context block: "${currentActiveWorkspace}"`);
         setSearchQuery(""); 
         await fetchPhotosForContext(currentActiveWorkspace, "");
       } else {
@@ -541,26 +580,9 @@ export default function GalleryMatrix() {
   };
 
   const handleLikeToggle = async (mediaId: number) => {
-    setPhotos(prev => prev.map(p => {
-      if (p.id === mediaId) {
-        return { ...p, likes_count: (p.likes_count || 0) + 1 };
-      }
-      return p;
-    }));
-    
-    setActiveAsset(prev => {
-      if (prev && prev.id === mediaId) {
-        return { ...prev, likes_count: (prev.likes_count || 0) + 1 };
-      }
-      return prev;
-    });
-
-    setWatermarkAsset(prev => {
-      if (prev && prev.id === mediaId) {
-        return { ...prev, likes_count: (prev.likes_count || 0) + 1 };
-      }
-      return prev;
-    });
+    addNotification("Registering asset verification endorsement into ledger matrix...");
+    setPhotos(prev => prev.map(p => p.id === mediaId ? { ...p, likes_count: (p.likes_count || 0) + 1 } : p));
+    setActiveAsset(prev => prev && prev.id === mediaId ? { ...prev, likes_count: (prev.likes_count || 0) + 1 } : prev);
 
     try {
       await fetch(`http://localhost:5000/api/media/${mediaId}/like`, {
@@ -570,6 +592,14 @@ export default function GalleryMatrix() {
     } catch (err) {
       console.error("Error logging database registry counter update:", err);
     }
+  };
+
+  const handleAddCommentToAsset = (assetId: number, comment: CommentData) => {
+    setAssetCommentsMap(prev => ({
+      ...prev,
+      [assetId]: [...(prev[assetId] || []), comment]
+    }));
+    addNotification(`Discussion stream appended by: ${comment.author}`);
   };
 
   const handleApproveHandshake = async (id: string, name: string) => {
@@ -592,7 +622,7 @@ export default function GalleryMatrix() {
       });
     } catch {}
     setPendingHandshakes(prev => prev.filter(h => h.id !== id));
-    alert(`✅ Real-time privilege allocation confirmed for profile user: ${name}`);
+    addNotification(`Scope clearance granted to role identity mapping: ${name}`);
   };
 
   const handleDenyHandshake = async (id: string) => {
@@ -609,6 +639,7 @@ export default function GalleryMatrix() {
       });
     } catch {}
     setPendingHandshakes(prev => prev.filter(h => h.id !== id));
+    addNotification("Handshake reference access dropped by terminal admin.");
   };
 
   return (
@@ -667,7 +698,6 @@ export default function GalleryMatrix() {
             <h1 className="text-4xl font-extrabold tracking-tight bg-gradient-to-r from-white via-gray-200 to-indigo-400 bg-clip-text text-transparent">
               {currentFolderContext ? `Directory: ${currentFolderContext}` : "Root Media Directory Workspace"}
             </h1>
-            
             {currentFolderContext ? (
               <button 
                 onClick={() => { setCurrentFolderContext(null); setSearchQuery(""); }}
@@ -692,265 +722,250 @@ export default function GalleryMatrix() {
           </div>
         </div>
 
-        {/* 1. INITIALIZE DIRECTORY WORKSPACE SECTION */}
+        {/* ==========================================
+            1. RE-ALIGNED STORAGE MODULE CREATION SECTION
+           ========================================== */}
         {!currentFolderContext ? (
-          <div className="space-y-6">
-            <div className="bg-gray-900/40 backdrop-blur-md border border-gray-800 rounded-2xl p-6 mb-8">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
-                <div className="flex items-center gap-2.5 text-indigo-400">
-                  <FolderPlus className="h-5 w-5" />
-                  <h2 className="text-sm font-bold tracking-wider uppercase text-gray-200">1. Initialize a Target Storage Folder Directory</h2>
-                </div>
-                
-                <div className="flex items-center gap-3">
-                  <div className="bg-gray-950 p-1 rounded-xl border border-gray-800 flex items-center gap-1">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+            
+            {/* Create Directory Subsection Block */}
+            <div className="lg:col-span-2 bg-gray-900/40 backdrop-blur-md border border-gray-800 rounded-2xl p-6 flex flex-col justify-between">
+              <div>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-5 gap-4">
+                  <div className="flex items-center gap-2.5 text-cyan-400">
+                    <FolderPlus className="h-5 w-5" />
+                    <h2 className="text-sm font-bold tracking-wider uppercase text-gray-200">Initialize Target Storage Folder</h2>
+                  </div>
+
+                  <div className="bg-gray-950 p-1 rounded-xl border border-gray-800 flex items-center gap-1 shrink-0">
                     <button 
-                      type="button"
-                      disabled={!canModifyStorage}
-                      onClick={() => setIsNewFolderPublic(true)}
-                      className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all ${
-                        !canModifyStorage ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'
-                      } ${isNewFolderPublic ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                      type="button" disabled={!canModifyStorage} onClick={() => setIsNewFolderPublic(true)}
+                      className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all ${!canModifyStorage ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'} ${isNewFolderPublic ? 'bg-cyan-600/30 border border-cyan-500/40 text-cyan-400' : 'text-gray-400'}`}
                     >
                       Public Target
                     </button>
                     <button 
-                      type="button"
-                      disabled={!canModifyStorage}
-                      onClick={() => setIsNewFolderPublic(false)}
-                      className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all ${
-                        !canModifyStorage ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'
-                      } ${!isNewFolderPublic ? 'bg-amber-600/80 text-white' : 'text-gray-400 hover:text-white'}`}
+                      type="button" disabled={!canModifyStorage} onClick={() => setIsNewFolderPublic(false)}
+                      className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all ${!canModifyStorage ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'} ${!isNewFolderPublic ? 'bg-amber-600/20 border border-amber-500/40 text-amber-400' : 'text-gray-400'}`}
                     >
                       Private Target
                     </button>
                   </div>
+                </div>
 
-                  <button
-                    type="button"
-                    onClick={handleCreateEmptyFolder}
-                    disabled={!canModifyStorage}
-                    className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 shrink-0 ${
-                      canModifyStorage 
-                        ? 'bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95 cursor-pointer' 
-                        : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <FolderPlus className="h-3.5 w-3.5" />
-                    <span>Create Workspace Directory</span>
-                  </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Event Name Identification</label>
+                    <input 
+                      type="text" placeholder="e.g. Workshop_Session_A" value={customEventName} onChange={(e) => setCustomEventName(e.target.value)} disabled={!canModifyStorage}
+                      className="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-2.5 text-white focus:outline-none focus:border-cyan-500 disabled:opacity-40"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Host Club Name</label>
+                    <input 
+                      type="text" placeholder="e.g. FinTech Club" value={customClubName} onChange={(e) => setCustomClubName(e.target.value)} disabled={!canModifyStorage}
+                      className="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-2.5 text-white focus:outline-none focus:border-cyan-500 disabled:opacity-40"
+                    />
+                  </div>
+                  <div className="sm:col-span-2 space-y-1">
+                    <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Workspace Block Description</label>
+                    <input 
+                      type="text" placeholder="Specify event scopes or asset handling restrictions..." value={customDescription} onChange={(e) => setCustomDescription(e.target.value)} disabled={!canModifyStorage}
+                      className="w-full bg-gray-950/80 border border-gray-800 rounded-xl p-2.5 text-white focus:outline-none focus:border-cyan-500 disabled:opacity-40"
+                    />
+                  </div>
                 </div>
               </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
-                <input 
-                  type="text" 
-                  placeholder="Event Name / Folder Code"
-                  value={customEventName}
-                  onChange={(e) => setCustomEventName(e.target.value)}
-                  disabled={!canModifyStorage}
-                  className="bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all disabled:opacity-40"
-                />
-                <input 
-                  type="text" 
-                  placeholder="Hosting Club Identity"
-                  value={customClubName}
-                  onChange={(e) => setCustomClubName(e.target.value)}
-                  disabled={!canModifyStorage}
-                  className="bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all disabled:opacity-40"
-                />
-                <input 
-                  type="text" 
-                  placeholder="Container Description Meta"
-                  value={customDescription}
-                  onChange={(e) => setCustomDescription(e.target.value)}
-                  disabled={!canModifyStorage}
-                  className="bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all disabled:opacity-40"
-                />
-              </div>
-            </div>
 
-            {/* Folder Grid View */}
-            <div className="space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Available Storage Node Blocks</h3>
-              {filteredDirectoriesDisplay.length === 0 ? (
-                <div className="text-center p-12 bg-gray-900/20 border border-dashed border-gray-800 rounded-2xl text-xs text-gray-500">
-                  No matching directory elements located in active workspace index registers.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredDirectoriesDisplay.map((dir) => (
-                    <div 
-                      key={dir}
-                      onClick={() => setCurrentFolderContext(dir)}
-                      className="group p-5 bg-gray-900/30 border border-gray-800 rounded-2xl flex items-center justify-between hover:border-indigo-500/40 transition-all cursor-pointer hover:bg-gray-900/50"
-                    >
-                      <div className="flex items-center gap-4 truncate">
-                        <div className="w-10 h-10 bg-indigo-500/10 text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white rounded-xl flex items-center justify-center border border-indigo-500/10 group-hover:border-transparent transition-all shrink-0">
-                          <Folder className="w-5 h-5" />
-                        </div>
-                        <div className="truncate">
-                          <p className="text-sm font-bold text-gray-200 truncate group-hover:text-white transition-colors">{dir.replace(/_/g, " ")}</p>
-                          <p className="text-[10px] text-gray-500 mt-0.5">Click to view stream registry</p>
-                        </div>
-                      </div>
-                      {activeRole === 'Admin' && (
-                        <button
-                          onClick={(e) => handlePurgeDirectory(e, dir)}
-                          className="p-2 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/10 rounded-xl transition-all cursor-pointer opacity-0 group-hover:opacity-100"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          /* 2. DISPATCHED INTERIOR FILE STREAM LOOK */
-          <div className="space-y-6">
-            {canModifyStorage && (
-              <div className="p-8 bg-gray-900/30 border border-dashed border-gray-800 rounded-2xl text-center backdrop-blur-sm max-w-2xl mx-auto">
-                <UploadCloud className="w-10 h-10 mx-auto text-indigo-400 mb-3" />
-                <h3 className="text-sm font-bold text-gray-200">Broadcast Raw Asset Elements to Layer Pool</h3>
-                <p className="text-xs text-gray-500 mt-1">Authorized Node Session Context Pipeline: {activeRole}</p>
-                <input 
-                  type="file" 
-                  multiple 
-                  ref={fileInputRef}
-                  onChange={handleBulkUpload}
-                  className="hidden" 
-                  accept="image/*"
-                />
+              <div className="mt-5 flex justify-end">
                 <button
-                  type="button"
-                  disabled={uploading}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="mt-4 px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer shadow-lg shadow-indigo-500/10"
+                  type="button" onClick={handleCreateEmptyFolder} disabled={!canModifyStorage}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${canModifyStorage ? 'bg-cyan-600 hover:bg-cyan-500 text-white active:scale-95 cursor-pointer' : 'bg-gray-800 text-gray-500 cursor-not-allowed'}`}
                 >
-                  {uploading ? "Streaming Payload Multiparts..." : "Select Files for Ingestion"}
+                  <FolderPlus className="h-4 w-4" />
+                  <span>Create Workspace Container</span>
                 </button>
               </div>
-            )}
+            </div>
 
-            {loading ? (
-              <div className="text-center p-24 text-xs font-mono text-indigo-400 tracking-widest animate-pulse">
-                SYNCING ACTIVE MEDIA ACCESS GRID RECONCILIATION LAYER...
+            {/* Direct File Ingestion Segment Block */}
+            <div className="bg-gray-900/40 backdrop-blur-md border border-gray-800 rounded-2xl p-6 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-cyan-400">
+                  <UploadCloud className="h-5 w-5" />
+                  <h2 className="text-sm font-bold tracking-wider uppercase text-gray-200">Direct Ingestion Hub</h2>
+                </div>
+                <p className="text-xs text-gray-400 leading-normal">
+                  Stream high-resolution files into the <span className="text-gray-200 font-medium">General Pool</span> directory instantly.
+                </p>
               </div>
-            ) : filteredPhotosDisplay.length === 0 ? (
-              <div className="text-center p-20 bg-gray-900/10 border border-dashed border-gray-800 rounded-2xl max-w-md mx-auto">
-                <Sparkles className="w-6 h-6 mx-auto text-gray-600 mb-2" />
-                <h4 className="text-xs font-bold text-gray-400">Zero Matching Element Vectors Located</h4>
-                <p className="text-[11px] text-gray-600 mt-1">Adjust search parameters or push active assets into this workspace slot.</p>
+
+              <div className="mt-4 flex-1 flex flex-col justify-center">
+                <input 
+                  type="file" id="direct-upload-node" multiple onChange={handleBulkUpload} ref={fileInputRef} disabled={!canModifyStorage} className="hidden" accept="image/*"
+                />
+                <label 
+                  htmlFor="direct-upload-node"
+                  className={`flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl transition-all text-center cursor-pointer ${canModifyStorage ? 'border-gray-800 hover:border-cyan-500/50 bg-gray-950/40 hover:bg-gray-950/80' : 'border-gray-800/40 opacity-40 cursor-not-allowed'}`}
+                >
+                  <UploadCloud className="h-7 w-7 text-gray-500 mb-2" />
+                  <span className="text-xs font-semibold block text-gray-300">Select Files for Ingestion</span>
+                  <span className="text-[10px] text-gray-500 block mt-0.5">Supports multi-selection image files</span>
+                </label>
+              </div>
+            </div>
+
+          </div>
+        ) : (
+          /* Inline contextual file upload inside an active folder layout */
+          canModifyStorage && (
+            <div className="bg-gray-900/40 backdrop-blur-md border border-gray-800 rounded-2xl p-5 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="text-xs space-y-0.5">
+                <h4 className="font-bold text-gray-200">Append High-Res Imagery Layer</h4>
+                <p className="text-gray-400">Direct streaming connection established target context: {currentFolderContext}</p>
+              </div>
+              <div>
+                <input type="file" id="context-upload-node" multiple onChange={handleBulkUpload} ref={fileInputRef} className="hidden" accept="image/*" />
+                <label htmlFor="context-upload-node" className="bg-gradient-to-r from-cyan-600 to-indigo-600 hover:brightness-110 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-md flex items-center gap-2 cursor-pointer transition-all active:scale-95">
+                  <UploadCloud className="w-4 h-4" /> Ingest New Assets Here
+                </label>
+              </div>
+            </div>
+          )
+        )}
+
+        {/* Directory Card Mapping Grid Rendering Row */}
+        {!currentFolderContext && (
+          <div className="space-y-4 mb-12">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
+              <Folder className="w-4 h-4 text-indigo-400" /> Active Directory Map ({filteredDirectoriesDisplay.length})
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {filteredDirectoriesDisplay.map((dir) => {
+                const innerCount = photos.filter(p => (p.event?.name || "General_Pool") === dir).length;
+                return (
+                  <div 
+                    key={dir} onClick={() => setCurrentFolderContext(dir)}
+                    className="group bg-[#0f1122]/60 hover:bg-[#13162b] border border-gray-800/80 hover:border-indigo-500/30 p-5 rounded-2xl cursor-pointer transition-all duration-200 shadow-lg flex items-center justify-between relative overflow-hidden"
+                  >
+                    <div className="flex items-center gap-4 z-10">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 group-hover:scale-110 transition-transform">
+                        <Folder className="w-5 h-5 fill-indigo-500/10" />
+                      </div>
+                      <div className="text-xs">
+                        <p className="font-bold text-gray-200 truncate max-w-[180px] group-hover:text-white">{dir}</p>
+                        <p className="text-[10px] text-gray-500 mt-0.5">{innerCount} files registered</p>
+                      </div>
+                    </div>
+
+                    {activeRole === 'Admin' && (
+                      <button
+                        onClick={(e) => handlePurgeDirectory(e, dir)}
+                        className="p-2 hover:bg-red-500/10 text-gray-600 hover:text-red-400 rounded-lg transition-colors z-20 border border-transparent hover:border-red-500/10"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Dynamic Photo Stream Display Cards Block */}
+        {(currentFolderContext || searchQuery) && (
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 flex items-center gap-2">
+              <span>🖼️</span> Operational Media Matrix Result ({filteredPhotosDisplay.length})
+            </h3>
+
+            {filteredPhotosDisplay.length === 0 ? (
+              <div className="text-center py-20 bg-gray-900/10 border border-gray-800 rounded-2xl">
+                <p className="text-sm text-gray-500 italic">No storage registers matching the current search parameters were resolved.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {filteredPhotosDisplay.map((photo) => {
-                  const verifiedTags = photo.ai_tags || (photo as any).tags || [];
-                  return (
-                    <div 
-                      key={photo.id}
-                      onClick={() => setWatermarkAsset(photo)}
-                      className="group bg-[#111224]/40 border border-gray-800/60 rounded-2xl overflow-hidden shadow-xl p-4 flex flex-col justify-between space-y-4 hover:border-indigo-500/30 transition-all backdrop-blur-sm cursor-pointer"
-                    >
-                      {/* Thumbnail Container */}
-                      <div className="aspect-video w-full bg-black/40 rounded-xl relative overflow-hidden border border-gray-800/80 flex items-center justify-center group-hover:scale-[1.01] transition-transform">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img 
-                          src={photo.s3_optimized_url} 
-                          alt={photo.title || "Asset Invariant"} 
-                          className="w-full h-full object-cover object-center"
-                          loading="lazy"
-                        />
-                        <div className="absolute top-2 left-2 flex gap-1">
-                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded border tracking-wider uppercase backdrop-blur-md ${
-                            photo.is_public 
-                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                          }`}>
-                            {photo.is_public ? "Public Access" : "Private Scope"}
-                          </span>
-                        </div>
-                      </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                {filteredPhotosDisplay.map((item) => (
+                  <div 
+                    key={item.id} onClick={() => setActiveAsset(item)}
+                    className={`group bg-[#0f1122]/60 rounded-2xl border transition-all duration-200 overflow-hidden cursor-pointer flex flex-col justify-between shadow-lg hover:shadow-cyan-500/5 ${activeAsset?.id === item.id ? 'border-cyan-500/80 ring-1 ring-cyan-500/30' : 'border-gray-800 hover:border-gray-700'}`}
+                  >
+                    <div className="relative aspect-video w-full bg-black flex items-center justify-center overflow-hidden border-b border-gray-800">
+                      <img 
+                        src={item.s3_optimized_url} alt={item.title || "Grid thumbnail"} 
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      {!item.is_public && (
+                        <span className="absolute top-2 left-2 bg-amber-500/20 border border-amber-500/30 backdrop-blur-md text-amber-400 font-mono text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider flex items-center gap-1">
+                          <EyeOff className="w-2.5 h-2.5" /> Private
+                        </span>
+                      )}
+                    </div>
 
-                      {/* Info Stacking Block */}
-                      <div className="space-y-1">
-                        <h4 className="text-xs font-bold text-gray-200 truncate group-hover:text-indigo-400 transition-colors">
-                          {photo.title || `SECURED_ASSET_NODE_${photo.id}`}
-                        </h4>
-                        <p className="text-[10px] font-mono text-gray-500 truncate">ID Hash: #{photo.id}</p>
-                        
-                        {/* Tag Pills */}
-                        {verifiedTags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-2">
-                            {verifiedTags.slice(0, 3).map((tag: string) => (
-                              <span key={tag} className="text-[9px] font-mono bg-gray-950 text-indigo-400 border border-gray-800 px-2 py-0.5 rounded-md">
-                                #{tag}
-                              </span>
-                            ))}
-                            {verifiedTags.length > 3 && (
-                              <span className="text-[9px] font-mono bg-gray-950 text-gray-500 border border-gray-800 px-1.5 py-0.5 rounded-md">
-                                +{verifiedTags.length - 3}
-                              </span>
-                            )}
+                    <div className="p-3.5 space-y-3">
+                      <div className="text-xs flex items-start justify-between gap-2">
+                        <div className="truncate">
+                          <h4 className="font-bold text-gray-200 truncate group-hover:text-white">{item.title || `Asset ID: #${item.id}`}</h4>
+                          <p className="text-[10px] text-gray-500 truncate mt-0.5">Dir: {item.event?.name || "General_Pool"}</p>
+                        </div>
+                        {activeRole === 'Admin' && (
+                          <div className="flex gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                            <button onClick={(e) => handleToggleVisibility(e, item)} className="p-1 text-gray-500 hover:text-cyan-400 hover:bg-gray-800 rounded transition-colors">
+                              {item.is_public ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-amber-400" />}
+                            </button>
+                            <button onClick={(e) => handleDeleteAsset(e, item.id)} className="p-1 text-gray-500 hover:text-red-400 hover:bg-gray-800 rounded transition-colors">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         )}
                       </div>
 
-                      {/* Interactive Trigger Panel Elements */}
-                      <div className="flex items-center justify-between pt-2 border-t border-gray-800/80 text-gray-400 text-xs">
-                        <span className="text-[9px] text-gray-500 uppercase tracking-wider bg-black/40 border border-gray-800 px-2 py-0.5 rounded">
-                          {photo.event?.name || "General"}
-                        </span>
-                        
-                        <div className="flex items-center gap-2">
-                          {activeRole === 'Admin' && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={(e) => handleToggleVisibility(e, photo)}
-                                className="p-1.5 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors cursor-pointer"
-                                title="Toggle Visibility Context"
-                              >
-                                {photo.is_public ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-amber-400" />}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => handleDeleteAsset(e, photo.id)}
-                                className="p-1.5 hover:bg-red-950 text-gray-400 hover:text-red-400 rounded-lg transition-colors cursor-pointer"
-                                title="Purge Asset from Platform"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </>
-                          )}
-                          <div className="flex items-center gap-1 text-[10px] text-gray-400 pl-1">
-                            <Heart className="w-3.5 h-3.5 text-pink-500 fill-pink-500" />
-                            <span>{photo.likes_count || 0}</span>
-                          </div>
-                        </div>
+                      <div className="flex flex-wrap gap-1">
+                        {(item.ai_tags || []).slice(0, 3).map((tag, idx) => (
+                          <span key={idx} className="bg-gray-950 text-gray-400 text-[9px] font-medium px-1.5 py-0.5 rounded border border-gray-800/60">
+                            #{tag.toLowerCase()}
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-800/60 text-[10px] font-medium text-gray-400">
+                        <span className="flex items-center gap-1"><Heart className="w-3 h-3 text-pink-500 fill-pink-500" /> {item.likes_count || 0}</span>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setActiveAsset(item); }}
+                          className="text-cyan-400 hover:underline flex items-center gap-1 font-semibold"
+                        >
+                          Details & Stamp <Sliders className="w-2.5 h-2.5" />
+                        </button>
                       </div>
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             )}
           </div>
         )}
 
-        {/* 4. MODAL OVERLAY COMPONENT RENDER ENGINE PIPELINE TRIGGER */}
-        {watermarkAsset && (
-          <InteractiveWatermarkModal 
-            asset={watermarkAsset}
-            currentUserRole={activeRole || "Viewer"}
-            onClose={() => setWatermarkAsset(null)}
-            onLikeTriggered={handleLikeToggle}
-          />
-        )}
-
       </div>
+
+      {/* Embedded interactive dynamic Focus Modal Overlay layer */}
+      {activeAsset && (
+        <InteractiveWatermarkModal 
+          asset={activeAsset}
+          currentUserRole={activeRole}
+          onClose={() => setActiveAsset(null)}
+          onLikeTriggered={handleLikeToggle}
+          comments={assetCommentsMap[activeAsset.id] || []}
+          onAddComment={handleAddCommentToAsset}
+        />
+      )}
+
+      {/* Floating Global Live Realtime Notification Layer Component Anchor */}
+      <NotificationCenter 
+        notifications={notifications} 
+        onCloseNotification={removeNotification} 
+      />
     </div>
   );
 }

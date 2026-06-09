@@ -1,6 +1,18 @@
 import React from 'react';
 
-export default function SearchFilters({ onFilterChange, filters }) {
+// 1. Define the missing TypeScript interface for props
+interface SearchFiltersProps {
+  onFilterChange: (key: string, value: string) => void;
+  filters: {
+    search: string;
+    category: string;
+    sortBy: string;
+    tag: string;
+  };
+}
+
+// 2. Type-annotate your component using the interface
+export default function SearchFilters({ onFilterChange, filters }: SearchFiltersProps) {
   const categories = ['Fest', 'Competition', 'Workshop', 'Photoshoot', 'Trip'];
   const popularAiTags = ['Main Stage', 'Crowd', 'Presentation', 'Tech', 'Outdoor', 'Abstract', 'Digital', 'Pixelated'];
 
