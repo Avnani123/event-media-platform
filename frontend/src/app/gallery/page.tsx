@@ -257,7 +257,7 @@ export default function GalleryMatrix() {
   const canModifyStorage = activeRole === 'Admin' || activeRole === 'Photographer';
   const canViewPrivateMedia = activeRole === 'Admin' || activeRole === 'Photographer' || activeRole === 'Club Member';
 
-  // FIXED: Deep filtering query scanner to scan item titles, s3 URLs, and inner tags cleanly
+  // FIXED ENGINE FILTER: Computes searches smoothly across titles, paths, and tags
   const filteredPhotosDisplay = photos.filter(item => {
     const searchString = searchQuery.toLowerCase().trim();
     if (!searchString) return true;
@@ -266,11 +266,17 @@ export default function GalleryMatrix() {
     const matchesEvent = item.event?.name?.toLowerCase().includes(searchString);
     const matchesUrl = item.s3_optimized_url?.toLowerCase().includes(searchString);
     
-    // Checked fallback for both potential tag keys ('ai_tags' vs 'tags')
     const tagsArray = item.ai_tags || (item as any).tags || [];
     const matchesTags = tagsArray.some((tag: string) => tag.toLowerCase().includes(searchString));
 
-    return matchesTitle || matchesTags || matchesEvent || matchesUrl;
+    return !!(matchesTitle || matchesTags || matchesEvent || matchesUrl);
+  });
+
+  // FIXED DIRECTORY LIST FILTER: Filters folder listing blocks based on search string when no folder is selected
+  const filteredDirectoriesDisplay = directories.filter(dir => {
+    const searchString = searchQuery.toLowerCase().trim();
+    if (currentFolderContext || !searchString) return true;
+    return dir.toLowerCase().includes(searchString);
   });
 
   const fetchLiveHandshakes = async () => {
@@ -437,15 +443,13 @@ export default function GalleryMatrix() {
     };
     window.addEventListener('storage', handleStorageUpdate);
 
-    const delayDebounce = setTimeout(() => {
-      fetchPhotosForContext(currentFolderContext, searchQuery);
-    }, 350);
+    // Sync state properly when layout shifts folder contexts
+    fetchPhotosForContext(currentFolderContext, "");
 
     return () => {
-      clearTimeout(delayDebounce);
       window.removeEventListener('storage', handleStorageUpdate);
     };
-  }, [currentFolderContext, searchQuery]);
+  }, [currentFolderContext]);
 
   const handleCreateEmptyFolder = async () => {
     if (!canModifyStorage) return;
@@ -680,7 +684,7 @@ export default function GalleryMatrix() {
             <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-500" />
             <input 
               type="text" 
-              placeholder={currentFolderContext ? `Search tags or files inside ${currentFolderContext}...` : "Search directories..."}
+              placeholder={currentFolderContext ? `Search tags or files inside current context...` : "Search directories..."}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-gray-900/60 backdrop-blur-md border border-gray-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all"
@@ -745,239 +749,208 @@ export default function GalleryMatrix() {
                   value={customEventName}
                   onChange={(e) => setCustomEventName(e.target.value)}
                   disabled={!canModifyStorage}
-                  className="bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 disabled:opacity-30"
+                  className="bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all disabled:opacity-40"
                 />
                 <input 
                   type="text" 
-                  placeholder="Club Origin Affiliation"
+                  placeholder="Hosting Club Identity"
                   value={customClubName}
                   onChange={(e) => setCustomClubName(e.target.value)}
                   disabled={!canModifyStorage}
-                  className="bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 disabled:opacity-30"
+                  className="bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all disabled:opacity-40"
                 />
                 <input 
                   type="text" 
-                  placeholder="Folder Context Description Payload"
+                  placeholder="Container Description Meta"
                   value={customDescription}
                   onChange={(e) => setCustomDescription(e.target.value)}
                   disabled={!canModifyStorage}
-                  className="bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 disabled:opacity-30"
+                  className="bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all disabled:opacity-40"
                 />
               </div>
             </div>
 
-            {/* Folder Grid Renders */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {directories
-                .filter(d => d.toLowerCase().includes(searchQuery.toLowerCase()))
-                .map((dir) => (
-                  <div 
-                    key={dir}
-                    onClick={() => { setCurrentFolderContext(dir); setSearchQuery(""); }}
-                    className="group bg-gray-900/30 hover:bg-indigo-950/20 border border-gray-800 hover:border-indigo-500/30 p-5 rounded-2xl transition-all duration-200 cursor-pointer flex items-center justify-between shadow-sm relative overflow-hidden"
-                  >
-                    <div className="flex items-center gap-4 relative z-10">
-                      <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center border border-indigo-500/10 group-hover:scale-105 transition-transform">
-                        <Folder className="w-5 h-5 fill-indigo-400/10" />
+            {/* Folder Grid View */}
+            <div className="space-y-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Available Storage Node Blocks</h3>
+              {filteredDirectoriesDisplay.length === 0 ? (
+                <div className="text-center p-12 bg-gray-900/20 border border-dashed border-gray-800 rounded-2xl text-xs text-gray-500">
+                  No matching directory elements located in active workspace index registers.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredDirectoriesDisplay.map((dir) => (
+                    <div 
+                      key={dir}
+                      onClick={() => setCurrentFolderContext(dir)}
+                      className="group p-5 bg-gray-900/30 border border-gray-800 rounded-2xl flex items-center justify-between hover:border-indigo-500/40 transition-all cursor-pointer hover:bg-gray-900/50"
+                    >
+                      <div className="flex items-center gap-4 truncate">
+                        <div className="w-10 h-10 bg-indigo-500/10 text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white rounded-xl flex items-center justify-center border border-indigo-500/10 group-hover:border-transparent transition-all shrink-0">
+                          <Folder className="w-5 h-5" />
+                        </div>
+                        <div className="truncate">
+                          <p className="text-sm font-bold text-gray-200 truncate group-hover:text-white transition-colors">{dir.replace(/_/g, " ")}</p>
+                          <p className="text-[10px] text-gray-500 mt-0.5">Click to view stream registry</p>
+                        </div>
                       </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-gray-200 truncate group-hover:text-white transition-colors max-w-[160px]">{dir.replace(/_/g, " ")}</h4>
-                        <p className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wider">Storage Partition</p>
-                      </div>
+                      {activeRole === 'Admin' && (
+                        <button
+                          onClick={(e) => handlePurgeDirectory(e, dir)}
+                          className="p-2 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/10 rounded-xl transition-all cursor-pointer opacity-0 group-hover:opacity-100"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
-
-                    {activeRole === 'Admin' && (
-                      <button
-                        onClick={(e) => handlePurgeDirectory(e, dir)}
-                        className="p-2 hover:bg-red-500/10 text-gray-600 hover:text-red-400 rounded-xl transition-colors relative z-20"
-                        title="Delete Directory Segment"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-              ))}
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ) : (
-          /* 2. DYNAMIC WORKSPACE MEDIA GALLERY LAYER VIEW */
+          /* 2. DISPATCHED INTERIOR FILE STREAM LOOK */
           <div className="space-y-6">
             {canModifyStorage && (
-              <div className="bg-gray-900/40 backdrop-blur-md border border-gray-800 rounded-2xl p-6 mb-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <UploadCloud className="w-5 h-5 text-cyan-400" />
-                  <div>
-                    <h3 className="text-sm font-bold text-gray-200">Ingest Media Stream Payload</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">Push files directly inside the active target instance path segment: <span className="text-indigo-400 font-medium">{currentFolderContext}</span></p>
-                  </div>
-                </div>
-
-                <label className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-cyan-600 hover:brightness-110 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-md flex items-center gap-2 cursor-pointer">
-                  <UploadCloud className="w-4 h-4" />
-                  <span>{uploading ? "Streaming Data Packets..." : "Upload Images"}</span>
-                  <input 
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    ref={fileInputRef}
-                    onChange={handleBulkUpload}
-                    disabled={uploading}
-                    className="hidden"
-                  />
-                </label>
+              <div className="p-8 bg-gray-900/30 border border-dashed border-gray-800 rounded-2xl text-center backdrop-blur-sm max-w-2xl mx-auto">
+                <UploadCloud className="w-10 h-10 mx-auto text-indigo-400 mb-3" />
+                <h3 className="text-sm font-bold text-gray-200">Broadcast Raw Asset Elements to Layer Pool</h3>
+                <p className="text-xs text-gray-500 mt-1">Authorized Node Session Context Pipeline: {activeRole}</p>
+                <input 
+                  type="file" 
+                  multiple 
+                  ref={fileInputRef}
+                  onChange={handleBulkUpload}
+                  className="hidden" 
+                  accept="image/*"
+                />
+                <button
+                  type="button"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mt-4 px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold text-xs rounded-xl transition-all active:scale-95 cursor-pointer shadow-lg shadow-indigo-500/10"
+                >
+                  {uploading ? "Streaming Payload Multiparts..." : "Select Files for Ingestion"}
+                </button>
               </div>
             )}
 
             {loading ? (
-              <div className="text-center py-20 text-xs text-gray-500 uppercase tracking-widest animate-pulse">
-                Refreshing encrypted object stream matrix grids...
+              <div className="text-center p-24 text-xs font-mono text-indigo-400 tracking-widest animate-pulse">
+                SYNCING ACTIVE MEDIA ACCESS GRID RECONCILIATION LAYER...
               </div>
             ) : filteredPhotosDisplay.length === 0 ? (
-              <div className="text-center py-20 bg-gray-900/20 border border-gray-800 rounded-2xl">
-                <Sparkles className="w-8 h-8 text-gray-600 mx-auto mb-3" />
-                <p className="text-sm text-gray-400 font-medium">No assets matches your active search string filters.</p>
-                <p className="text-xs text-gray-600 mt-1">Try testing other alternative AI tag signatures.</p>
+              <div className="text-center p-20 bg-gray-900/10 border border-dashed border-gray-800 rounded-2xl max-w-md mx-auto">
+                <Sparkles className="w-6 h-6 mx-auto text-gray-600 mb-2" />
+                <h4 className="text-xs font-bold text-gray-400">Zero Matching Element Vectors Located</h4>
+                <p className="text-[11px] text-gray-600 mt-1">Adjust search parameters or push active assets into this workspace slot.</p>
               </div>
             ) : (
-              /* Split Screen Asset Render Layout Grid */
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-                
-                {/* Left Block: Render Grid Items */}
-                <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {filteredPhotosDisplay.map((photo) => {
-                    const isAssetSelected = activeAsset?.id === photo.id;
-                    return (
-                      <div
-                        key={photo.id}
-                        onClick={() => setActiveAsset(photo)}
-                        className={`group relative bg-gray-900/40 border rounded-2xl overflow-hidden transition-all duration-200 cursor-pointer ${
-                          isAssetSelected ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-gray-800/80 hover:border-gray-700'
-                        }`}
-                      >
-                        <div className="aspect-video w-full bg-black/40 relative overflow-hidden">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img 
-                            src={photo.s3_optimized_url} 
-                            alt={photo.title || "Gallery Item"} 
-                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
-                          />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {filteredPhotosDisplay.map((photo) => {
+                  const verifiedTags = photo.ai_tags || (photo as any).tags || [];
+                  return (
+                    <div 
+                      key={photo.id}
+                      onClick={() => setWatermarkAsset(photo)}
+                      className="group bg-[#111224]/40 border border-gray-800/60 rounded-2xl overflow-hidden shadow-xl p-4 flex flex-col justify-between space-y-4 hover:border-indigo-500/30 transition-all backdrop-blur-sm cursor-pointer"
+                    >
+                      {/* Thumbnail Container */}
+                      <div className="aspect-video w-full bg-black/40 rounded-xl relative overflow-hidden border border-gray-800/80 flex items-center justify-center group-hover:scale-[1.01] transition-transform">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img 
+                          src={photo.s3_optimized_url} 
+                          alt={photo.title || "Asset Invariant"} 
+                          className="w-full h-full object-cover object-center"
+                          loading="lazy"
+                        />
+                        <div className="absolute top-2 left-2 flex gap-1">
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded border tracking-wider uppercase backdrop-blur-md ${
+                            photo.is_public 
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          }`}>
+                            {photo.is_public ? "Public Access" : "Private Scope"}
+                          </span>
+                        </div>
+                      </div>
 
-                          {/* Quick Admin Access Controls Layer Badge Overlay */}
+                      {/* Info Stacking Block */}
+                      <div className="space-y-1">
+                        <h4 className="text-xs font-bold text-gray-200 truncate group-hover:text-indigo-400 transition-colors">
+                          {photo.title || `SECURED_ASSET_NODE_${photo.id}`}
+                        </h4>
+                        <p className="text-[10px] font-mono text-gray-500 truncate">ID Hash: #{photo.id}</p>
+                        
+                        {/* Tag Pills */}
+                        {verifiedTags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-2">
+                            {verifiedTags.slice(0, 3).map((tag: string) => (
+                              <span key={tag} className="text-[9px] font-mono bg-gray-950 text-indigo-400 border border-gray-800 px-2 py-0.5 rounded-md">
+                                #{tag}
+                              </span>
+                            ))}
+                            {verifiedTags.length > 3 && (
+                              <span className="text-[9px] font-mono bg-gray-950 text-gray-500 border border-gray-800 px-1.5 py-0.5 rounded-md">
+                                +{verifiedTags.length - 3}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Interactive Trigger Panel Elements */}
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-800/80 text-gray-400 text-xs">
+                        <span className="text-[9px] text-gray-500 uppercase tracking-wider bg-black/40 border border-gray-800 px-2 py-0.5 rounded">
+                          {photo.event?.name || "General"}
+                        </span>
+                        
+                        <div className="flex items-center gap-2">
                           {activeRole === 'Admin' && (
-                            <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                            <>
                               <button
+                                type="button"
                                 onClick={(e) => handleToggleVisibility(e, photo)}
-                                className={`p-1.5 rounded-lg border backdrop-blur-md transition-colors ${
-                                  photo.is_public 
-                                    ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-400' 
-                                    : 'bg-amber-950/80 border-amber-500/30 text-amber-400'
-                                }`}
-                                title={photo.is_public ? "Public Visibility Active" : "Private Boundary Locked"}
+                                className="p-1.5 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+                                title="Toggle Visibility Context"
                               >
-                                {photo.is_public ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                                {photo.is_public ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-amber-400" />}
                               </button>
                               <button
+                                type="button"
                                 onClick={(e) => handleDeleteAsset(e, photo.id)}
-                                className="p-1.5 bg-red-950/80 border border-red-500/30 text-red-400 rounded-lg hover:bg-red-900 transition-colors"
-                                title="Purge Asset Completely"
+                                className="p-1.5 hover:bg-red-950 text-gray-400 hover:text-red-400 rounded-lg transition-colors cursor-pointer"
+                                title="Purge Asset from Platform"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
-                            </div>
+                            </>
                           )}
-                        </div>
-
-                        {/* Text Description Box Panel info inside grid */}
-                        <div className="p-4 text-xs">
-                          <p className="font-semibold text-gray-200 truncate">{photo.title || `Asset Reference Profile #${photo.id}`}</p>
-                          <div className="flex flex-wrap gap-1 mt-2">
-                            {photo.ai_tags?.slice(0, 3).map(tag => (
-                              <span key={tag} className="px-2 py-0.5 bg-gray-950 text-gray-400 border border-gray-800 rounded-md text-[10px]">
-                                {tag}
-                              </span>
-                            ))}
+                          <div className="flex items-center gap-1 text-[10px] text-gray-400 pl-1">
+                            <Heart className="w-3.5 h-3.5 text-pink-500 fill-pink-500" />
+                            <span>{photo.likes_count || 0}</span>
                           </div>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-
-                {/* Right Block: Live Deep Inspection & Action Pane */}
-                {activeAsset && (
-                  <div className="bg-[#0f1020] border border-gray-800 rounded-2xl p-6 sticky top-8 space-y-5">
-                    <div className="aspect-video w-full rounded-xl overflow-hidden border border-gray-800/60 bg-black/40">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img 
-                        src={activeAsset.s3_optimized_url} 
-                        alt="Inspection Node" 
-                        className="w-full h-full object-contain"
-                      />
                     </div>
-
-                    <div>
-                      <span className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-extrabold rounded ${
-                        activeAsset.is_public ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                      }`}>
-                        {activeAsset.is_public ? "Scope Context: Open Public" : "Scope Context: Restricted Private"}
-                      </span>
-                      <h3 className="text-base font-bold text-white mt-2.5 truncate">{activeAsset.title || `Asset Core Matrix Reference #${activeAsset.id}`}</h3>
-                      <p className="text-xs text-gray-400 mt-1 truncate">Origin Container Reference: {activeAsset.event?.name || currentFolderContext || "General_Pool"}</p>
-                    </div>
-
-                    {/* Meta Tag Chips */}
-                    <div className="space-y-1.5">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Identified Neural Cloud Labels</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {activeAsset.ai_tags && activeAsset.ai_tags.length > 0 ? (
-                          activeAsset.ai_tags.map(tag => (
-                            <span key={tag} className="px-2.5 py-1 bg-[#060713] border border-[#1d203b] text-indigo-300 rounded-lg text-[10px] font-medium">
-                              🏷️ {tag}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-xs text-gray-600 italic">No labels parsed for this object instance.</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Operational Access Action Footers */}
-                    <div className="pt-4 border-t border-gray-800/60 grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => handleLikeToggle(activeAsset.id)}
-                        className="flex items-center justify-center gap-2 py-2 bg-gray-900 hover:bg-gray-800 transition-colors border border-gray-800 text-xs font-semibold rounded-xl text-gray-200 cursor-pointer"
-                      >
-                        <Heart className="w-3.5 h-3.5 text-pink-500 fill-pink-500" />
-                        <span>Like ({activeAsset.likes_count || 0})</span>
-                      </button>
-
-                      <button
-                        onClick={() => setWatermarkAsset(activeAsset)}
-                        className="flex items-center justify-center gap-2 py-2 bg-indigo-600 hover:bg-indigo-500 transition-colors text-xs font-bold rounded-xl text-white cursor-pointer shadow-md shadow-indigo-600/10"
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                        <span>Export Secure</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-
+                  );
+                })}
               </div>
             )}
           </div>
         )}
 
-      </div>
+        {/* 4. MODAL OVERLAY COMPONENT RENDER ENGINE PIPELINE TRIGGER */}
+        {watermarkAsset && (
+          <InteractiveWatermarkModal 
+            asset={watermarkAsset}
+            currentUserRole={activeRole || "Viewer"}
+            onClose={() => setWatermarkAsset(null)}
+            onLikeTriggered={handleLikeToggle}
+          />
+        )}
 
-      {/* Interactive Floating Canvas Watermark Secure Controller Module Node */}
-      {watermarkAsset && (
-        <InteractiveWatermarkModal 
-          asset={watermarkAsset}
-          onClose={() => setWatermarkAsset(null)}
-          onLikeTriggered={handleLikeToggle}
-          currentUserRole={activeRole}
-        />
-      )}
+      </div>
     </div>
   );
 }
