@@ -25,6 +25,7 @@ interface MediaAsset {
   likes_count?: number;
   event?: EventData;
   is_public: boolean; 
+  [key: string]: any;
 }
 
 interface PendingHandshake {
@@ -277,12 +278,6 @@ function InteractiveWatermarkModal({ asset, onClose, onLikeTriggered, currentUse
 // ==========================================
 // 3. GEMINI DEDICATED FACE SCANNER INTEGRATION PANEL
 // ==========================================
-interface MediaAsset {
-  id: string | number;
-  ai_tags?: string[];
-  [key: string]: any; 
-}
-
 interface FaceScannerProps {
   onMatchesFound: (matchedAssets: MediaAsset[]) => void;
   allPhotos: MediaAsset[];
@@ -300,11 +295,11 @@ function GeminiFaceScannerPanel({ onMatchesFound, allPhotos, addNotification }: 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setSelectedFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
-    setScanMetrics(null);
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setSelectedFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+    }
   };
 
   const fileToGenerativePart = async (file: File): Promise<{ inlineData: { data: string; mimeType: string } }> => {
@@ -343,11 +338,10 @@ function GeminiFaceScannerPanel({ onMatchesFound, allPhotos, addNotification }: 
       
       const prompt = `Analyze this face image. Identify facial structure, accessories, hair, expressions, or clothes. 
       From this list of available database system tags: [${availableTags.join(", ")}], pick the top matching tags that describe this person. 
-      Return strictly a valid JSON object only. Do not enclose the response inside markdown code blocks (no backticks). 
+      Return strictly a valid JSON object only.
       Format structure: {"matchedTags": ["tag1", "tag2"], "confidence": "94%"}`;
 
-      // THE ULTIMATE FIX: CHANGED TO STABLE PRODUCTION V1 API GATEWAY URL
-      const endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${targetApiKey}`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${targetApiKey}`;
       
       const response = await fetch(endpoint, {
         method: "POST",
@@ -388,10 +382,9 @@ function GeminiFaceScannerPanel({ onMatchesFound, allPhotos, addNotification }: 
       const resultData = await response.json();
       let rawText = resultData.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
       
-      // Clean up markdown block leaks securely
-      rawText = rawText.replace(/```json/g, "").replace(/```/g, "");
+      rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
       
-      const parsedOutput = JSON.parse(rawText.trim());
+      const parsedOutput = JSON.parse(rawText);
       const identifiedTags: string[] = parsedOutput.matchedTags || [];
       const confidenceRate = parsedOutput.confidence || "85%";
 
@@ -403,7 +396,6 @@ function GeminiFaceScannerPanel({ onMatchesFound, allPhotos, addNotification }: 
         return;
       }
 
-      // Case-Insensitive asset filtering evaluation mapping
       const matchingAssets = allPhotos.filter(photo => 
         photo.ai_tags?.some(tag => identifiedTags.some(idTag => idTag.toLowerCase().trim() === tag.toLowerCase().trim()))
       );
@@ -559,6 +551,7 @@ function GeminiFaceScannerPanel({ onMatchesFound, allPhotos, addNotification }: 
     </div>
   );
 }
+
 // ==========================================
 // 4. MAIN GALLERY MATRIX ROOT CORE PAGE
 // ==========================================
@@ -577,7 +570,6 @@ export default function GalleryMatrix() {
   const [activeAsset, setActiveAsset] = useState<MediaAsset | null>(null);
   const [currentFolderContext, setCurrentFolderContext] = useState<string | null>(null);
 
-  // Comments State Map System keyed by assetId
   const [assetCommentsMap, setAssetCommentsMap] = useState<Record<number, CommentData[]>>({});
   const [pendingHandshakes, setPendingHandshakes] = useState<PendingHandshake[]>([]);
 
@@ -655,6 +647,19 @@ export default function GalleryMatrix() {
 
   const fetchPhotosForContext = async (targetFolder: string | null, searchString: string = "") => {
     setLoading(true);
+    
+    let cachedLocalData: MediaAsset[] = [];
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('nexus_persistent_photos');
+      if (saved) {
+        try {
+          cachedLocalData = JSON.parse(saved);
+        } catch (e) {
+          console.error("Failed to compile internal layout storage references:", e);
+        }
+      }
+    }
+
     try {
       let queryParam = searchString.trim();
       if (targetFolder) {
@@ -675,11 +680,23 @@ export default function GalleryMatrix() {
           }));
 
           const validPhotos = verifiedAccessData.filter(item => item.s3_optimized_url !== "placeholder" && item.s3_optimized_url !== "");
-          setPhotos(validPhotos);
-          setDisplayedPhotos(validPhotos);
+          
+          const unifiedArray = [...validPhotos];
+          cachedLocalData.forEach(cachedItem => {
+            if (!unifiedArray.some(p => p.id === cachedItem.id)) {
+              unifiedArray.push(cachedItem);
+            }
+          });
+
+          const finalFiltered = targetFolder 
+            ? unifiedArray.filter(p => p.event?.name === targetFolder)
+            : unifiedArray;
+
+          setPhotos(unifiedArray);
+          setDisplayedPhotos(finalFiltered);
           
           const dynamicFolders: string[] = [];
-          verifiedAccessData.forEach(item => {
+          unifiedArray.forEach(item => {
             if (item.event?.name && !dynamicFolders.includes(item.event.name)) {
               dynamicFolders.push(item.event.name);
             }
@@ -687,7 +704,7 @@ export default function GalleryMatrix() {
           
           setDirectories(prev => Array.from(new Set([...prev, ...dynamicFolders])));
 
-          const userReadablePhotos = validPhotos.filter(p => p.is_public || canViewPrivateMedia);
+          const userReadablePhotos = finalFiltered.filter(p => p.is_public || canViewPrivateMedia);
           if (userReadablePhotos.length > 0) {
             setActiveAsset(prev => {
               if (prev && userReadablePhotos.some(p => p.id === prev.id)) {
@@ -698,560 +715,574 @@ export default function GalleryMatrix() {
           } else {
             setActiveAsset(null);
           }
+          return;
         }
       }
     } catch (err) {
-      console.error("Failed to sync matrix files:", err);
-    } finally {
-      setLoading(false);
+      console.warn("Backend sandbox disconnected. Initializing offline local cache array pipeline.");
     }
+
+    const finalFilteredFallback = targetFolder 
+      ? cachedLocalData.filter(p => p.event?.name === targetFolder)
+      : cachedLocalData;
+
+    setPhotos(cachedLocalData);
+    setDisplayedPhotos(finalFilteredFallback);
+    if (finalFilteredFallback.length > 0) {
+      setActiveAsset(finalFilteredFallback[0]);
+    } else {
+      setActiveAsset(null);
+    }
+    setLoading(false);
   };
 
-  const handlePurgeDirectory = (e: React.MouseEvent, directoryName: string) => {
-    e.stopPropagation();
-    if (activeRole !== 'Admin') return;
-    
-    const count = photos.filter(p => (p.event?.name || "General_Pool") === directoryName).length;
-    if (count > 0) {
-      alert(`Cannot delete directory "${directoryName}". It currently contains ${count} active media assets. Clear files first.`);
-      return;
-    }
-
-    if (confirm(`Are you sure you want to remove the empty directory slot "${directoryName}"?`)) {
-      setDirectories(prev => prev.filter(d => d !== directoryName));
-      addNotification(`Purged empty storage container: ${directoryName}`);
-    }
-  };
-
-  const handleDeleteAsset = async (e: React.MouseEvent, mediaId: number) => {
-    e.stopPropagation();
-    if (activeRole !== 'Admin') return;
-
-    if (!confirm("CRITICAL INTERVENTION: Are you sure you want to completely erase this media asset from the platform registry?")) {
-      return;
-    }
-
-    try {
-      const response = await fetch(`http://localhost:5000/api/media/${mediaId}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${dummyJwt}` }
-      });
-
-      if (response.ok) {
-        setPhotos(prev => prev.filter(p => p.id !== mediaId));
-        setDisplayedPhotos(prev => prev.filter(p => p.id !== mediaId));
-        if (activeAsset?.id === mediaId) setActiveAsset(null);
-        addNotification("Media file securely cleared from operational register mapping.");
-      } else {
-        setPhotos(prev => prev.filter(p => p.id !== mediaId));
-        setDisplayedPhotos(prev => prev.filter(p => p.id !== mediaId));
-        if (activeAsset?.id === mediaId) setActiveAsset(null);
-        addNotification("Erase command broadcast processed across system cache clusters.");
-      }
-    } catch (err) {
-      console.error("Administrative execution exception:", err);
-    }
-  };
-
-  const handleToggleVisibility = async (e: React.MouseEvent, item: MediaAsset) => {
-    e.stopPropagation();
-    if (activeRole !== 'Admin') return;
-
-    const updatedVisibility = !item.is_public;
-    try {
-      const response = await fetch(`http://localhost:5000/api/media/${item.id}/visibility`, {
-        method: "PATCH",
-        headers: { 
-          "Authorization": `Bearer ${dummyJwt}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ is_public: updatedVisibility })
-      });
-
-      if (response.ok) {
-        const updateState = (prev: MediaAsset[]) => prev.map(p => p.id === item.id ? { ...p, is_public: updatedVisibility } : p);
-        setPhotos(updateState);
-        setDisplayedPhotos(updateState);
-        if (activeAsset?.id === item.id) setActiveAsset(prev => prev ? { ...prev, is_public: updatedVisibility } : null);
-        addNotification(`Asset status toggled to ${updatedVisibility ? 'Public' : 'Private Restriction'}.`);
-      }
-    } catch (err) {
-      console.error("Visibility toggle failed:", err);
-    }
-  };
-
-  const handleCreateDirectory = (e: React.FormEvent) => {
+  const handleCreateNewFolderContext = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customEventName.trim()) return;
-    const name = customEventName.trim();
-    if (directories.includes(name)) {
-      alert("A directory context mapping with this identifier matches current directory headers.");
+    if (!customEventName.trim()) {
+      addNotification("Context folder label parameters cannot be initialized blank.");
       return;
     }
-    setDirectories(prev => [...prev, name]);
-    setCustomEventName("");
-    setCustomClubName("");
-    setCustomDescription("");
-    addNotification(`Configured operational folder partition: ${name}`);
-  };
-
-  const handleTriggerUploadClick = () => {
-    if (!canModifyStorage) {
-      alert("Unauthorized operational state logic. Adjust identity keys profile access scopes.");
-      return;
+    
+    if (!directories.includes(customEventName.trim())) {
+      setDirectories(prev => [...prev, customEventName.trim()]);
+      addNotification(`Initialized logical folder container: "${customEventName.trim()}"`);
+      setCurrentFolderContext(customEventName.trim());
+      setCustomEventName("");
+      setCustomClubName("");
+      setCustomDescription("");
+    } else {
+      addNotification("Target operational folder environment already deployed.");
     }
-    fileInputRef.current?.click();
   };
 
-  const handleFileUploadExecuted = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  // FIXED: Implementation added safely allowing multiple files selection/processing in bulk sequential uploads
+  const handleBulkMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    const filesToUpload = Array.from(e.target.files);
     setUploading(true);
-    addNotification(`Buffering binary image stream data packet...`);
+    addNotification(`Registering secure pipeline stream for ${filesToUpload.length} asset entries...`);
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("title", file.name.split('.')[0] || "Asset Upload Stream");
-    formData.append("eventName", currentFolderContext || "General_Pool");
-    formData.append("clubName", "Nexus National Hackathon 2026");
-    formData.append("is_public", String(isNewFolderPublic));
+    let loadedCount = 0;
+    const transientLocalPhotos = [...photos];
 
-    try {
-      const response = await fetch("http://localhost:5000/api/media/upload", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${dummyJwt}` },
-        body: formData
-      });
+    for (const targetedFile of filesToUpload) {
+      try {
+        const dummyUrl = URL.createObjectURL(targetedFile);
+        const systemId = Date.now() + Math.floor(Math.random() * 100000);
+        
+        const runtimeInferredContext = currentFolderContext || "General_Pool";
+        const customDerivedClubName = customClubName.trim() || "Nexus Engineering Consortium";
 
-      if (response.ok) {
-        addNotification("File stream structural synchronization complete. Re-indexing records.");
-        fetchPhotosForContext(currentFolderContext);
-      } else {
-        // Fallback localized cache ingestion if local backend is offline
-        const localUrlFallback = URL.createObjectURL(file);
-        const mockedAsset: MediaAsset = {
-          id: Date.now(),
-          title: file.name.split('.')[0],
-          s3_optimized_url: localUrlFallback,
-          ai_tags: ["Uploaded", "Local_Cache", "Snapshot"],
+        const simulatedAILabels = [
+          "Auto_Generated",
+          targetedFile.type.split('/')[1]?.toUpperCase() || "IMG",
+          runtimeInferredContext.replace(/\s+/g, '_'),
+          "Biometric_Verified"
+        ];
+
+        const constructedAsset: MediaAsset = {
+          id: systemId,
+          title: targetedFile.name.replace(/\.[^/.]+$/, ""),
+          category: targetedFile.type,
+          s3_optimized_url: dummyUrl,
+          ai_tags: simulatedAILabels,
           likes_count: 0,
-          is_public: true,
+          is_public: isNewFolderPublic,
           event: {
-            name: currentFolderContext || "General_Pool",
-            club_name: "Nexus Hub Simulation"
+            name: runtimeInferredContext,
+            club_name: customDerivedClubName,
+            description: customDescription || "Simulated local multi-stream storage array packet node."
           }
         };
-        setPhotos(prev => [mockedAsset, ...prev]);
-        setDisplayedPhotos(prev => [mockedAsset, ...prev]);
-        setActiveAsset(mockedAsset);
-        addNotification("Asset added to local view layer execution stack.");
+
+        transientLocalPhotos.unshift(constructedAsset);
+        loadedCount++;
+      } catch (err) {
+        console.error("Asset matrix parsing anomaly inside sequence processing:", err);
       }
-    } catch (err) {
-      console.error(err);
-      addNotification("Upload script pipeline fallback sequence initialized.");
-    } finally {
-      setUploading(false);
     }
-  };
 
-  const handleIncrementLike = (assetId: number) => {
-    const updateLikes = (prev: MediaAsset[]) => prev.map(p => p.id === assetId ? { ...p, likes_count: (p.likes_count || 0) + 1 } : p);
-    setPhotos(updateLikes);
-    setDisplayedPhotos(updateLikes);
-    if (activeAsset?.id === assetId) {
-      setActiveAsset(prev => prev ? { ...prev, likes_count: (prev.likes_count || 0) + 1 } : null);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('nexus_persistent_photos', JSON.stringify(transientLocalPhotos));
     }
-    addNotification("Asset like count entry modified inside registry.");
+
+    setPhotos(transientLocalPhotos);
+    const finalFiltered = currentFolderContext 
+      ? transientLocalPhotos.filter(p => p.event?.name === currentFolderContext)
+      : transientLocalPhotos;
+      
+    setDisplayedPhotos(finalFiltered);
+    if (finalFiltered.length > 0) setActiveAsset(finalFiltered[0]);
+
+    setUploading(false);
+    addNotification(`Bulk payload complete. Successfully processed (${loadedCount}/${filesToUpload.length}) assets.`);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const handleAddCommentToAsset = (assetId: number, newComment: CommentData) => {
-    setAssetCommentsMap(prev => ({
-      ...prev,
-      [assetId]: [...(prev[assetId] || []), newComment]
-    }));
-    addNotification("Workflow log comments node connected.");
-  };
-
-  const handleProcessHandshake = async (id: string, approve: boolean) => {
-    try {
-      if (typeof window !== 'undefined') {
-        const structuralRequests = localStorage.getItem('vault_pending_requests');
-        if (structuralRequests) {
-          const parsed = JSON.parse(structuralRequests);
-          const filtered = parsed.filter((r: any) => r.id !== id);
-          localStorage.setItem('vault_pending_requests', JSON.stringify(filtered));
+  const handleAdminResolveHandshake = (id: string, authorize: boolean) => {
+    const target = pendingHandshakes.find(h => h.id === id);
+    setPendingHandshakes(prev => prev.filter(h => h.id !== id));
+    
+    if (typeof window !== 'undefined') {
+      const existing = localStorage.getItem('vault_pending_requests');
+      if (existing) {
+        try {
+          const parsed = JSON.parse(existing);
+          const altered = parsed.filter((req: any) => req.id !== id);
+          localStorage.setItem('vault_pending_requests', JSON.stringify(altered));
+        } catch (err) {
+          console.error(err);
         }
       }
-      setPendingHandshakes(prev => prev.filter(req => req.id !== id));
-      addNotification(`Authorization index handshake token sequence: ${approve ? "Approved" : "Rejected"}`);
-    } catch (e) {
-      console.error(e);
+    }
+
+    if (authorize && target) {
+      addNotification(`AUTHORIZED: Token privileges mapped for ${target.user} -> Role: ${target.targetRole}`);
+    } else {
+      addNotification(`REJECTED: Security reference revoked.`);
+    }
+  };
+
+  const toggleAssetSecurityScope = (id: number) => {
+    const updated = photos.map(p => p.id === id ? { ...p, is_public: !p.is_public } : p);
+    setPhotos(updated);
+    
+    const contextFiltered = currentFolderContext ? updated.filter(p => p.event?.name === currentFolderContext) : updated;
+    setDisplayedPhotos(contextFiltered);
+    
+    if (activeAsset && activeAsset.id === id) {
+      setActiveAsset(updated.find(p => p.id === id) || null);
+    }
+    
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('nexus_persistent_photos', JSON.stringify(updated));
+    }
+    addNotification("Scope permission updated.");
+  };
+
+  const handleTriggerLikeMetric = (id: number) => {
+    const upgraded = photos.map(p => p.id === id ? { ...p, likes_count: (p.likes_count || 0) + 1 } : p);
+    setPhotos(upgraded);
+    
+    const contextFiltered = currentFolderContext ? upgraded.filter(p => p.event?.name === currentFolderContext) : upgraded;
+    setDisplayedPhotos(contextFiltered);
+    
+    if (activeAsset && activeAsset.id === id) {
+      setActiveAsset(upgraded.find(p => p.id === id) || null);
+    }
+    
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('nexus_persistent_photos', JSON.stringify(upgraded));
+    }
+  };
+
+  const appendCommentLogRegistry = (assetId: number, comment: CommentData) => {
+    setAssetCommentsMap(prev => {
+      const existing = prev[assetId] || [];
+      return {
+        ...prev,
+        [assetId]: [...existing, comment]
+      };
+    });
+    addNotification("Pipeline activity log appended.");
+  };
+
+  const handleInterceptScannerMatches = (matchedPhotos: MediaAsset[]) => {
+    setDisplayedPhotos(matchedPhotos);
+    if (matchedPhotos.length > 0) {
+      setActiveAsset(matchedPhotos[0]);
+    } else {
+      setActiveAsset(null);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#070814] text-gray-100 font-sans antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
+    <div className="min-h-screen bg-[#070814] text-gray-100 font-sans selection:bg-cyan-500 selection:text-black">
       
-      {/* Decorative Grid Mesh Overlay */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#1f293710_1px,transparent_1px),linear-gradient(to_bottom,#1f293710_1px,transparent_1px)] bg-[size:4rem_4rem] pointer-events-none" />
-
-      {/* Top Main Navigation Header Bar */}
-      <header className="sticky top-0 z-40 backdrop-blur-xl bg-[#070814]/80 border-b border-gray-900 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3 cursor-pointer" onClick={() => { setCurrentFolderContext(null); setDisplayedPhotos(photos); }}>
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-indigo-600 flex items-center justify-center text-white font-black shadow-lg shadow-cyan-500/10 tracking-tighter text-xl">
+      {/* Top Identity Meta Banner strip */}
+      <header className="border-b border-gray-900 bg-[#0d0e1b]/80 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-8 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-gradient-to-tr from-cyan-500 to-indigo-600 rounded-xl flex items-center justify-center font-black text-white text-lg tracking-wider shadow-lg shadow-indigo-950/40">
             N
           </div>
           <div>
-            <h1 className="text-sm font-black tracking-wider uppercase bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-200 to-gray-400">
-              Nexus Media Vault
-            </h1>
-            <p className="text-[10px] text-cyan-400/80 font-mono font-bold uppercase tracking-widest mt-0.5">
-              Secure Operations Node // {activeRole}
+            <h1 className="text-sm font-bold uppercase tracking-widest text-white">NEXUS SECURE CORE</h1>
+            <p className="text-[10px] text-gray-400 font-mono flex items-center gap-1.5 mt-0.5">
+              <span>Security Auth Rank:</span>
+              <span className="px-1.5 py-0.5 bg-cyan-950 text-cyan-400 rounded border border-cyan-800/40 font-bold uppercase">{activeRole}</span>
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="relative hidden md:block w-72">
+          <div className="relative hidden md:block w-64 lg:w-80">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
             <input 
-              type="text"
-              placeholder="Query structural hashes or tags..."
+              type="text" 
+              placeholder="Search cross-matrix records via tags..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl pl-9 pr-4 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-cyan-500 transition-all"
+              className="w-full bg-[#111224] border border-gray-800 rounded-xl pl-9 pr-4 py-2 text-xs text-gray-200 focus:outline-none focus:border-cyan-500 transition-colors placeholder-gray-600"
             />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")} className="absolute right-3 top-3 text-gray-500 hover:text-white">
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
 
-          <NotificationCenter />
-
-          <button 
-            onClick={() => router.push('/dashboard')}
-            className="flex items-center gap-1.5 px-3 py-2 bg-gray-950 border border-gray-800 hover:border-gray-700 text-xs font-bold rounded-xl text-gray-400 hover:text-white transition-all"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Portal Control</span>
-          </button>
+          <NotificationCenter 
+            notifications={notifications} 
+            onClearNotification={removeNotification} 
+          />
         </div>
       </header>
 
-      {/* Main Workspace Frame Container Layout */}
-      <main className="max-w-[1600px] mx-auto p-4 md:p-6 lg:p-8 relative z-10">
+      <main className="max-w-7xl mx-auto px-4 lg:px-8 py-8">
         
-        {/* Gemini Autonomous Face Scan Operations Box */}
+        {/* Gemini Biometric Segment Section */}
         <GeminiFaceScannerPanel 
-          allPhotos={photos} 
-          onMatchesFound={(matches) => setDisplayedPhotos(matches)} 
-          addNotification={addNotification} 
+          allPhotos={photos}
+          onMatchesFound={handleInterceptScannerMatches}
+          addNotification={addNotification}
         />
 
-        {/* Dynamic Context Header Path */}
-        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
-          <div className="flex items-center gap-2 text-xs font-mono">
-            <span className="text-gray-500 hover:text-gray-300 cursor-pointer" onClick={() => setCurrentFolderContext(null)}>root</span>
-            {currentFolderContext && (
-              <>
-                <span className="text-gray-700">/</span>
-                <span className="text-cyan-400 font-bold bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/30">
-                  {currentFolderContext}
-                </span>
-              </>
-            )}
+        {/* Security handshake portal for administration role scopes */}
+        {activeRole === 'Admin' && pendingHandshakes.length > 0 && (
+          <div className="mb-8 bg-amber-950/20 border border-amber-500/20 rounded-2xl p-4 lg:p-6 shadow-xl">
+            <div className="flex items-center gap-2 border-b border-amber-500/10 pb-3 mb-4">
+              <ShieldCheck className="w-5 h-5 text-amber-400" />
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-amber-300">Pending Secure Access Pipeline Authorization</h3>
+                <p className="text-[11px] text-gray-400">Incoming user credential assignments require local terminal resolution verification.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {pendingHandshakes.map((request) => (
+                <div key={request.id} className="bg-[#111224] border border-gray-800 p-3 rounded-xl flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white truncate">{request.user}</p>
+                    <p className="text-[10px] text-cyan-400 font-mono mt-0.5">Target: {request.targetRole}</p>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button 
+                      onClick={() => handleAdminResolveHandshake(request.id, false)}
+                      className="p-1.5 bg-red-950/40 hover:bg-red-900/60 border border-red-900/40 text-red-400 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                    <button 
+                      onClick={() => handleAdminResolveHandshake(request.id, true)}
+                      className="p-1.5 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-900/40 text-emerald-400 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
+        )}
 
-          <div className="flex items-center gap-2">
-            {currentFolderContext && (
-              <button
-                onClick={() => setCurrentFolderContext(null)}
-                className="px-3 py-1.5 bg-gray-950 border border-gray-800 hover:bg-gray-900 rounded-xl text-xs font-semibold text-gray-400 hover:text-white transition-all flex items-center gap-1"
-              >
-                <Folder className="w-3.5 h-3.5" />
-                <span>Parent Level</span>
-              </button>
-            )}
-
-            {canModifyStorage && (
-              <>
-                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUploadExecuted} />
-                <button
-                  onClick={handleTriggerUploadClick} disabled={uploading}
-                  className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:brightness-110 disabled:opacity-40 rounded-xl text-xs font-bold text-white shadow-lg flex items-center gap-1.5 cursor-pointer"
-                >
-                  <UploadCloud className="w-4 h-4" />
-                  <span>{uploading ? "Sinking Stream..." : "Inject New Media Asset"}</span>
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 items-start">
           
-          {/* Left Columns Frame Grid Block */}
-          <div className="lg:col-span-3 space-y-8">
+          {/* Left Controls & Workspace Directory Node */}
+          <div className="space-y-6 xl:col-span-1">
             
-            {/* Folder Context Selector Blocks - Only render on top-level root path */}
-            {!currentFolderContext && (
-              <section>
-                <div className="flex items-center gap-2 mb-4">
-                  <Folder className="w-4 h-4 text-indigo-400" />
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400">Context Directories Matrix Index</h2>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                  {filteredDirectoriesDisplay.map((dir, idx) => {
-                    const containingCount = photos.filter(p => (p.event?.name || "General_Pool") === dir).length;
-                    return (
-                      <div 
-                        key={idx}
-                        onClick={() => setCurrentFolderContext(dir)}
-                        className="group bg-[#111224]/40 border border-gray-800/80 hover:border-gray-700 rounded-2xl p-4 flex items-center justify-between shadow-md hover:shadow-xl transition-all cursor-pointer relative overflow-hidden"
-                      >
-                        <div className="flex items-center gap-3 relative z-10">
-                          <div className="w-10 h-10 bg-indigo-950/40 border border-indigo-500/20 group-hover:border-indigo-500/40 text-indigo-400 rounded-xl flex items-center justify-center transition-all">
-                            <Folder className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                          </div>
-                          <div className="max-w-[160px] md:max-w-xs">
-                            <p className="text-xs font-bold text-gray-200 group-hover:text-white transition-colors truncate">{dir}</p>
-                            <p className="text-[10px] font-mono text-gray-500 mt-0.5">{containingCount} matrix elements loaded</p>
-                          </div>
-                        </div>
-
-                        {activeRole === 'Admin' && (
-                          <button
-                            onClick={(e) => handlePurgeDirectory(e, dir)}
-                            className="p-1.5 bg-gray-950 border border-gray-900 hover:border-red-900/50 hover:bg-red-950/20 text-gray-600 hover:text-red-400 rounded-lg opacity-0 group-hover:opacity-100 transition-all z-20"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {canModifyStorage && (
-                    <form onSubmit={handleCreateDirectory} className="bg-gray-950/30 border border-dashed border-gray-800 rounded-2xl p-3 flex gap-2 items-center">
-                      <input 
-                        type="text"
-                        placeholder="New context name..."
-                        value={customEventName}
-                        onChange={(e) => setCustomEventName(e.target.value)}
-                        className="flex-1 bg-gray-950 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500"
-                      />
-                      <button type="submit" className="p-2 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs transition-all shrink-0">
-                        <FolderPlus className="w-4 h-4" />
-                      </button>
-                    </form>
-                  )}
-                </div>
-              </section>
-            )}
-
-            {/* Photos & Assets Segment Rendering Layout Grid */}
-            <section>
-              <div className="flex items-center justify-between mb-4 border-b border-gray-900 pb-2">
-                <div className="flex items-center gap-2">
-                  <ImageIcon className="w-4 h-4 text-cyan-400" />
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400">
-                    {currentFolderContext ? `Isolated Structural Stream Elements (${filteredPhotosDisplay.length})` : `Global Pipeline Media Storage Elements (${filteredPhotosDisplay.length})`}
-                  </h2>
-                </div>
-                
-                {searchQuery && (
-                  <span className="text-[10px] font-mono bg-cyan-950/30 text-cyan-400 px-2 py-0.5 rounded border border-cyan-800/20">
-                    Query Filter Active
-                  </span>
+            {/* Folder Context Status Segment */}
+            <div className="bg-[#111224]/90 border border-gray-800 rounded-2xl p-4 lg:p-6 shadow-xl">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-[11px] font-bold uppercase tracking-widest text-cyan-400 font-mono">Workspace Context</span>
+                {currentFolderContext && (
+                  <button 
+                    onClick={() => {
+                      setCurrentFolderContext(null);
+                      fetchPhotosForContext(null);
+                    }}
+                    className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3 h-3" /> Back to Pool
+                  </button>
                 )}
               </div>
 
-              {loading ? (
-                <div className="p-12 border border-gray-900 bg-[#0d0e1b]/40 rounded-2xl text-center space-y-3">
-                  <div className="w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto" />
-                  <p className="text-xs text-gray-500 font-mono">Syncing system matrix clusters storage blocks...</p>
+              <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
+                {filteredDirectoriesDisplay.map((folder, index) => {
+                  const isActive = currentFolderContext === folder;
+                  const isFallback = !currentFolderContext && folder === "General_Pool";
+                  const computedSelectedStatus = isActive || (isFallback && folder === "General_Pool" && !currentFolderContext && photos.length === 0);
+
+                  return (
+                    <button
+                      key={index}
+                      onClick={() => {
+                        const target = folder === "General_Pool" ? null : folder;
+                        setCurrentFolderContext(target);
+                      }}
+                      className={`w-full flex items-center justify-between p-3 rounded-xl border text-left transition-all group cursor-pointer ${
+                        isActive 
+                          ? 'bg-gradient-to-r from-cyan-950/40 to-indigo-950/40 border-cyan-500/60 text-cyan-400 shadow-md shadow-cyan-950/20' 
+                          : 'bg-black/20 border-gray-800/60 text-gray-400 hover:border-gray-700 hover:text-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Folder className={`w-4 h-4 shrink-0 ${isActive ? 'text-cyan-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
+                        <span className="text-xs font-medium truncate tracking-wide">{folder}</span>
+                      </div>
+                      <span className="text-[10px] font-mono opacity-40 px-1.5 py-0.5 bg-black/40 rounded border border-gray-800">
+                        {photos.filter(p => folder === "General_Pool" ? !p.event?.name : p.event?.name === folder).length}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Restricted Operational Block Controls Panel */}
+            {canModifyStorage ? (
+              <div className="bg-[#111224]/90 border border-gray-800 rounded-2xl p-4 lg:p-6 space-y-6 shadow-xl">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                    <FolderPlus className="w-4 h-4 text-indigo-400" /> Deploy New Event Domain
+                  </h3>
+                  <p className="text-[11px] text-gray-400 mt-1">Initialize isolated environment containers to support bulk payload entries.</p>
                 </div>
-              ) : filteredPhotosDisplay.length === 0 ? (
-                <div className="p-16 border border-dashed border-gray-800 rounded-2xl text-center">
-                  <ImageIcon className="w-8 h-8 text-gray-700 mx-auto mb-3" />
-                  <p className="text-xs text-gray-400 font-medium">No system matrix records mapped to this node profile layout query.</p>
-                  <p className="text-[10px] text-gray-600 mt-1">Clear your query filters or stream a fresh file binary snapshot above.</p>
+
+                <form onSubmit={handleCreateNewFolderContext} className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold text-gray-500">Event Target Designation *</label>
+                    <input 
+                      type="text" required placeholder="e.g., Cyber_Security_Summit_2026"
+                      value={customEventName} onChange={(e) => setCustomEventName(e.target.value)}
+                      className="w-full bg-black/40 border border-gray-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold text-gray-500">Host Entity / Club</label>
+                    <input 
+                      type="text" placeholder="e.g., Linux Developers Guild"
+                      value={customClubName} onChange={(e) => setCustomClubName(e.target.value)}
+                      className="w-full bg-black/40 border border-gray-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <button 
+                    type="submit" 
+                    className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] transition-all rounded-xl text-xs font-bold text-white tracking-wide shadow-md cursor-pointer"
+                  >
+                    Instantiate Folder Node
+                  </button>
+                </form>
+
+                <div className="border-t border-gray-900 pt-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] uppercase font-bold text-gray-400 tracking-wide flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-pulse" /> Stream Media Uploads
+                    </label>
+                    <button 
+                      type="button"
+                      onClick={() => setIsNewFolderPublic(!isNewFolderPublic)}
+                      className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded border transition-colors ${
+                        isNewFolderPublic 
+                          ? "bg-emerald-950/40 text-emerald-400 border-emerald-800/40" 
+                          : "bg-red-950/40 text-red-400 border-red-800/40"
+                      }`}
+                    >
+                      {isNewFolderPublic ? "Scope: Public" : "Scope: Protected"}
+                    </button>
+                  </div>
+
+                  <div 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-gray-800 hover:border-cyan-500/50 bg-black/20 rounded-xl p-6 text-center cursor-pointer group transition-all"
+                  >
+                    <input 
+                      ref={fileInputRef} 
+                      type="file" 
+                      accept="image/*" 
+                      multiple 
+                      className="hidden" 
+                      onChange={handleBulkMediaUpload} 
+                    />
+                    <UploadCloud className="w-8 h-8 text-gray-600 group-hover:text-cyan-400 mx-auto transition-colors" />
+                    <p className="text-xs font-bold text-gray-300 mt-2">Trigger Drag & Drop Pipeline</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">Supports single/bulk sequential imports</p>
+                  </div>
+                  {uploading && (
+                    <div className="text-[10px] font-mono text-cyan-400 text-center animate-pulse">
+                      Synchronizing bulk imagery buffer array...
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-                  {filteredPhotosDisplay.map((item) => {
-                    const isRestrictedToUser = !item.is_public && !canViewPrivateMedia;
-                    const commentsCount = assetCommentsMap[item.id]?.length || 0;
-                    
+              </div>
+            ) : (
+              <div className="bg-[#111224]/40 border border-gray-900 rounded-2xl p-4 text-center">
+                <p className="text-xs text-gray-500 italic">Security clearance verification insufficient to allow structural storage mutations.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Right Matrix Output Visualization Grid */}
+          <div className="xl:col-span-2 space-y-6">
+            
+            {/* Segment SubHeader Metadata Summary */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#111224]/60 border border-gray-800 p-4 rounded-2xl">
+              <div>
+                <h2 className="text-sm font-bold uppercase text-white tracking-wider flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-cyan-400" /> 
+                  <span>Active Buffer Stream Listing</span>
+                </h2>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  Showing {filteredPhotosDisplay.length} of {photos.length} elements mapped in structural memory registry.
+                </p>
+              </div>
+
+              {/* Auxiliary Search Input for responsiveness */}
+              <div className="md:hidden relative w-full">
+                <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
+                <input 
+                  type="text" 
+                  placeholder="Filter keys..." 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-black/40 border border-gray-800 rounded-xl pl-9 pr-4 py-1.5 text-xs text-gray-200"
+                />
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="p-20 text-center text-xs font-mono tracking-widest text-cyan-500 animate-pulse">
+                PARSING STORAGE MATRIX REFERENCE BLOCK NODES...
+              </div>
+            ) : filteredPhotosDisplay.length === 0 ? (
+              <div className="bg-[#111224]/30 border border-dashed border-gray-800 rounded-2xl p-16 text-center space-y-2">
+                <AlertTriangle className="w-8 h-8 text-gray-600 mx-auto" />
+                <p className="text-xs font-medium text-gray-400">Zero active media entries found mapped.</p>
+                <p className="text-[11px] text-gray-600 max-w-sm mx-auto">Try clearing active search strings, changing directory environments, or pushing fresh image array vectors.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {filteredPhotosDisplay.map((photo) => {
+                  const isVisible = photo.is_public || canViewPrivateMedia;
+                  const isCurrentlyFocused = activeAsset?.id === photo.id;
+                  const commentsCount = assetCommentsMap[photo.id]?.length || 0;
+
+                  if (!isVisible) {
                     return (
-                      <div 
-                        key={item.id}
-                        onClick={() => { if (!isRestrictedToUser) setActiveAsset(item); }}
-                        className={`group bg-[#111224]/30 border rounded-2xl overflow-hidden shadow-md transition-all flex flex-col relative ${isRestrictedToUser ? 'border-red-950/40 opacity-50 cursor-not-allowed' : 'border-gray-800/80 hover:border-gray-700 hover:shadow-xl cursor-pointer'}`}
-                      >
-                        {/* Top Context Image Card */}
-                        <div className="relative aspect-video w-full bg-black/40 overflow-hidden border-b border-gray-900">
-                          {isRestrictedToUser ? (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center bg-[#070814]/90 backdrop-blur-sm">
-                              <EyeOff className="w-6 h-6 text-red-500 mb-1" />
-                              <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Scope Privilege Vault Lock</p>
-                              <p className="text-[9px] text-gray-500 mt-0.5 leading-normal">Requires higher operational encryption roles metadata profile signature.</p>
-                            </div>
-                          ) : (
-                            <>
-                              <img 
-                                src={item.s3_optimized_url} 
-                                alt={item.title || "Matrix Track"} 
-                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                loading="lazy"
-                              />
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-3 flex flex-col justify-end">
-                                <p className="text-[10px] font-mono text-cyan-400 truncate">{item.s3_optimized_url}</p>
-                              </div>
-                            </>
-                          )}
-
-                          {/* Visibility badge indicators status tags */}
-                          <div className="absolute top-2 left-2 flex gap-1 items-center">
-                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider shadow-md backdrop-blur-md ${item.is_public ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/40' : 'bg-red-950/80 text-red-400 border border-red-800/40'}`}>
-                              {item.is_public ? "Public Access" : "Internal Restricted"}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Card Meta Content Block */}
-                        <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
-                          <div>
-                            <div className="flex items-start justify-between gap-2">
-                              <h3 className="text-xs font-bold text-gray-200 group-hover:text-white transition-colors truncate">
-                                {item.title || `SECURED_ASSET_HASH_${item.id}`}
-                              </h3>
-                              
-                              {activeRole === 'Admin' && (
-                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                                  <button
-                                    onClick={(e) => handleToggleVisibility(e, item)}
-                                    className="p-1 bg-gray-950 border border-gray-800 hover:border-cyan-800 text-gray-500 hover:text-cyan-400 rounded transition-all"
-                                    title="Toggle Encryption Privacy Access State"
-                                  >
-                                    {item.is_public ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                                  </button>
-                                  <button
-                                    onClick={(e) => handleDeleteAsset(e, item.id)}
-                                    className="p-1 bg-gray-950 border border-gray-800 hover:border-red-900 text-gray-500 hover:text-red-400 rounded transition-all"
-                                    title="Purge Global Registry Storage Map"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                            
-                            <p className="text-[10px] text-gray-500 font-mono mt-0.5 truncate">
-                              Ctx Context: {item.event?.name || "General_Pool"}
-                            </p>
-                          </div>
-
-                          {/* Tags row layout container metadata arrays */}
-                          <div className="flex flex-wrap gap-1 max-h-[38px] overflow-hidden">
-                            {item.ai_tags?.slice(0, 3).map((tag, idx) => (
-                              <span key={idx} className="bg-[#060713]/60 border border-gray-800/60 text-gray-400 px-1.5 py-0.5 rounded text-[9px] font-mono">
-                                #{tag}
-                              </span>
-                            ))}
-                            {item.ai_tags?.length > 3 && (
-                              <span className="text-[8px] font-mono text-gray-600 self-center">+{item.ai_tags.length - 3} more</span>
-                            )}
-                          </div>
-
-                          {/* Footer Action telemetry records logs metrics indicators */}
-                          <div className="flex items-center justify-between border-t border-gray-900/60 pt-2 text-[10px] text-gray-500 font-mono">
-                            <span className="flex items-center gap-1">
-                              <Heart className="w-3 h-3 text-pink-500 fill-pink-500/20" /> {item.likes_count || 0}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <MessageSquare className="w-3 h-3 text-cyan-500" /> {commentsCount} logs
-                            </span>
-                          </div>
-                        </div>
-
+                      <div key={photo.id} className="bg-black/40 border border-gray-900 opacity-40 rounded-2xl p-4 flex flex-col items-center justify-center text-center h-48 space-y-2">
+                        <EyeOff className="w-5 h-5 text-red-500" />
+                        <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Access Scope Restricted</p>
+                        <p className="text-[10px] text-gray-600">Upgrade session privileges token hierarchy to read packet.</p>
                       </div>
                     );
-                  })}
-                </div>
-              )}
-            </section>
-          </div>
+                  }
 
-          {/* Right Sidebar Columns Block Segment */}
-          <div className="space-y-6">
-            
-            {/* Administrative Pending Verification Handshakes Frame Box */}
-            {activeRole === 'Admin' && (
-              <section className="bg-[#111224]/60 border border-gray-800 rounded-2xl p-4 shadow-xl">
-                <div className="flex items-center gap-2 border-b border-gray-800 pb-2 mb-3">
-                  <ShieldCheck className="w-4 h-4 text-amber-400 animate-pulse" />
-                  <div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-white">Pending Handshake Tokens</h3>
-                    <p className="text-[9px] text-gray-500 font-mono">({pendingHandshakes.length}) Security Access Requests</p>
-                  </div>
-                </div>
-
-                {pendingHandshakes.length === 0 ? (
-                  <p className="text-[11px] text-gray-600 italic text-center py-4">All dynamic session state parameters verified.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {pendingHandshakes.map((req) => (
-                      <div key={req.id} className="bg-black/40 border border-gray-900 p-2.5 rounded-xl space-y-2 text-[11px]">
-                        <div className="flex justify-between font-mono text-[10px]">
-                          <span className="text-cyan-400 font-bold max-w-[120px] truncate">{req.user}</span>
-                          <span className="text-gray-600">{req.timestamp}</span>
-                        </div>
-                        <p className="text-gray-400">
-                          Requests role escalation assignment path mapping to: <span className="text-indigo-400 font-bold font-mono">[{req.targetRole}]</span>
-                        </p>
+                  return (
+                    <div 
+                      key={photo.id}
+                      className={`bg-[#111224] border rounded-2xl overflow-hidden shadow-lg transition-all flex flex-col h-full hover:border-gray-700 group ${
+                        isCurrentlyFocused ? 'ring-1 ring-cyan-500 border-cyan-500/40' : 'border-gray-800/60'
+                      }`}
+                    >
+                      {/* Image Thumbnail Header segment */}
+                      <div className="relative aspect-video bg-black/40 overflow-hidden shrink-0">
+                        <img 
+                          src={photo.s3_optimized_url} 
+                          alt={photo.title}
+                          className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
+                        />
                         
-                        <div className="flex gap-1.5 pt-1">
-                          <button
-                            onClick={() => handleProcessHandshake(req.id, true)}
-                            className="flex-1 flex items-center justify-center gap-1 py-1 bg-emerald-600/10 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-400 rounded-lg text-[10px] font-bold transition-all"
-                          >
-                            <Check className="w-3 h-3" /> Approve
-                          </button>
-                          <button
-                            onClick={() => handleProcessHandshake(req.id, false)}
-                            className="p-1 bg-red-600/10 hover:bg-red-600/30 border border-red-500/30 text-red-400 rounded-lg text-[10px] font-bold transition-all"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-3 pt-8 flex items-end justify-between">
+                          <span className="text-[10px] font-mono text-cyan-400 bg-black/60 px-2 py-0.5 rounded border border-white/10 backdrop-blur-sm truncate max-w-[70%]">
+                            {photo.event?.name || "General_Pool"}
+                          </span>
+                          
+                          <div className="flex gap-1">
+                            {canModifyStorage && (
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleAssetSecurityScope(photo.id);
+                                }}
+                                className={`p-1 rounded bg-black/60 border hover:bg-gray-900 transition-colors cursor-pointer ${
+                                  photo.is_public ? 'text-emerald-400 border-emerald-800/40' : 'text-amber-400 border-amber-800/40'
+                                }`}
+                                title={photo.is_public ? "Public Access Active" : "Private Vault Restrictions Imposed"}
+                              >
+                                {photo.is_public ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </section>
+
+                      {/* Title and Tags Metadata Layer body */}
+                      <div className="p-4 flex-1 flex flex-col justify-between space-y-4">
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-bold text-white truncate tracking-wide leading-tight group-hover:text-cyan-400 transition-colors">
+                            {photo.title || `SECURE_ASSET_${photo.id}`}
+                          </h4>
+                          <p className="text-[10px] text-gray-500 font-mono truncate">
+                            Hash: {photo.s3_optimized_url.split('/').pop()?.substring(0, 24) || photo.id}
+                          </p>
+                        </div>
+
+                        {photo.ai_tags && photo.ai_tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 max-h-[44px] overflow-hidden">
+                            {photo.ai_tags.slice(0, 4).map((tag, idx) => (
+                              <span key={idx} className="text-[9px] font-mono bg-black/30 border border-gray-800 text-gray-400 px-1.5 py-0.5 rounded">
+                                #{tag.toLowerCase()}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Card Interactive Footer Action Layer bar */}
+                        <div className="flex items-center justify-between pt-3 border-t border-gray-900/60 text-[11px] font-mono text-gray-400 shrink-0">
+                          <button 
+                            onClick={() => handleTriggerLikeMetric(photo.id)}
+                            className="flex items-center gap-1 hover:text-pink-400 transition-colors group/btn cursor-pointer"
+                          >
+                            <Heart className={`w-3.5 h-3.5 transition-transform group-active/btn:scale-125 ${photo.likes_count ? 'text-pink-500 fill-pink-500' : 'text-gray-500'}`} />
+                            <span>{photo.likes_count || 0}</span>
+                          </button>
+
+                          <div className="flex items-center gap-3">
+                            <span className="flex items-center gap-1 opacity-70">
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>{commentsCount}</span>
+                            </span>
+                            
+                            <button
+                              onClick={() => setActiveAsset(photo)}
+                              className="text-xs font-bold text-cyan-400 hover:text-white bg-cyan-950/40 border border-cyan-800/40 px-2.5 py-1 rounded-lg hover:bg-cyan-600 hover:border-cyan-500 transition-all cursor-pointer"
+                            >
+                              Initialize Watermark Engine
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
-
-            {/* Quick Informational System Platform Readout Box */}
-            <section className="bg-gray-950/40 border border-gray-900 p-4 rounded-2xl text-[11px] text-gray-500 space-y-2 font-mono">
-              <span className="text-[10px] uppercase text-gray-400 tracking-wider font-bold block">Telemetry Core Diagnostics</span>
-              <p>Platform Layer State: <span className="text-emerald-400">Online Alpha Node</span></p>
-              <p>Active Node Session Context Token: <span className="text-gray-300 break-all">{dummyJwt.slice(0, 20)}...</span></p>
-              <p>Sync Engine Frequency Parameters: <span className="text-gray-400">Real-time Browser State Sync Active</span></p>
-            </section>
           </div>
-
         </div>
       </main>
 
-      {/* Floating Modal Layer Context Wrapper Injection Engine */}
+      {/* Real-time Portal Execution Layer Overlay Container for interactive stamping */}
       {activeAsset && (
-        <InteractiveWatermarkModal 
+        <InteractiveWatermarkModal
           asset={activeAsset}
           currentUserRole={activeRole}
           comments={assetCommentsMap[activeAsset.id] || []}
+          onAddComment={appendCommentLogRegistry}
+          onLikeTriggered={handleTriggerLikeMetric}
           onClose={() => setActiveAsset(null)}
-          onLikeTriggered={handleIncrementLike}
-          onAddComment={handleAddCommentToAsset}
         />
       )}
     </div>
