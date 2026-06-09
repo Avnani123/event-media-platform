@@ -2,7 +2,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation'; 
-import { Search, Heart, Download, Sparkles, UploadCloud, FolderPlus, Folder, ArrowLeft, CheckCircle2, ShieldCheck, Check, X, Trash2, Eye, EyeOff, Tag } from 'lucide-react';
+import { 
+  Search, Heart, Download, Sparkles, UploadCloud, FolderPlus, 
+  Folder, ArrowLeft, ShieldCheck, Check, X, Trash2, Eye, 
+  EyeOff, Tag, ScanFace, FileWarning, RefreshCw, Lock, Unlock 
+} from 'lucide-react';
 import { useRole } from '../../context/RoleContext'; 
 
 interface EventData {
@@ -55,8 +59,17 @@ export default function GalleryMatrix() {
   const [newTagInput, setNewTagInput] = useState<string>("");
   const [isDownloadingWithWatermark, setIsDownloadingWithWatermark] = useState<boolean>(false);
 
+  // Biometric Facial Recognition Framework Local States
+  const [biometricSelfieFile, setBiometricSelfieFile] = useState<File | null>(null);
+  const [biometricScanning, setBiometricScanning] = useState<boolean>(false);
+  const [isBiometricActive, setIsBiometricActive] = useState<boolean>(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const biometricInputRef = useRef<HTMLInputElement>(null);
   const dummyJwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwicm9sZSI6IkFkbWluIn0";
+
+  // Robust fallback variable resolution mechanism to eliminate "undefined" endpoint failures
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "https://event-media-platform-80me.onrender.com";
 
   const canModifyStorage = activeRole === 'Admin' || activeRole === 'Photographer';
   const canViewPrivateMedia = activeRole === 'Admin' || activeRole === 'Photographer' || activeRole === 'Club Member';
@@ -85,7 +98,7 @@ export default function GalleryMatrix() {
     }
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/handshakes`, {   
+      const response = await fetch(`${apiBaseUrl}/api/admin/handshakes`, {   
         method: "GET",
         headers: { "Authorization": `Bearer ${dummyJwt}` }
       });
@@ -106,7 +119,7 @@ export default function GalleryMatrix() {
         queryParam = queryParam ? `${targetFolder} ${queryParam}` : targetFolder;
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/media/search?query=${encodeURIComponent(queryParam)}`, {
+      const response = await fetch(`${apiBaseUrl}/api/media/search?query=${encodeURIComponent(queryParam)}`, {
         method: "GET",
         headers: { "Authorization": `Bearer ${dummyJwt}` }
       });
@@ -120,7 +133,7 @@ export default function GalleryMatrix() {
             is_public: item.is_public !== undefined ? item.is_public : index % 3 !== 0
           }));
 
-          const validPhotos = verifiedAccessData.filter(item => item.s3_optimized_url !== "placeholder" && item.s3_optimized_url !== "");
+          const validPhotos = verifiedAccessData.filter(item => item.s3_optimized_url && item.s3_optimized_url !== "placeholder");
           setPhotos(validPhotos);
           
           const dynamicFolders: string[] = [];
@@ -143,6 +156,49 @@ export default function GalleryMatrix() {
     } catch (err) {
       console.error("Failed to sync matrix files:", err);
     } finally {
+      setLoading(false);
+    }
+  };
+
+  // Execution engine pipeline handler for Biometric Face Mapping Matching
+  const triggerBiometricFaceMatchScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selfieFile = e.target.files?.[0];
+    if (!selfieFile) return;
+
+    setBiometricSelfieFile(selfieFile);
+    setBiometricScanning(true);
+    setLoading(true);
+
+    const formData = new FormData();
+    formData.append("referenceSelfie", selfieFile);
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/media/face-match`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${dummyJwt}` },
+        body: formData
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && Array.isArray(data.matchingPhotos)) {
+          alert(`🧬 Biometric Scan Complete! Located ${data.matchesCount} exact matching facial profiles inside the database system.`);
+          setPhotos(data.matchingPhotos);
+          setIsBiometricActive(true);
+          if (data.matchingPhotos.length > 0) {
+            setActiveAsset(data.matchingPhotos[0]);
+          }
+        } else {
+          alert("No facial pattern similarities detected inside the current archive pools.");
+        }
+      } else {
+        alert("Facial matching system validation failed or timed out.");
+      }
+    } catch (err) {
+      console.error("Biometric ingestion failure pipeline crash:", err);
+      alert("Biometric analysis engine unreachable.");
+    } finally {
+      setBiometricScanning(false);
       setLoading(false);
     }
   };
@@ -171,7 +227,7 @@ export default function GalleryMatrix() {
     }
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/media/${mediaId}`, {
+      const response = await fetch(`${apiBaseUrl}/api/media/${mediaId}`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${dummyJwt}` }
       });
@@ -196,7 +252,7 @@ export default function GalleryMatrix() {
 
     const updatedVisibility = !item.is_public;
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/media/${item.id}/visibility`, {
+      await fetch(`${apiBaseUrl}/api/media/${item.id}/visibility`, {
         method: "PATCH",
         headers: { 
           "Authorization": `Bearer ${dummyJwt}`,
@@ -214,7 +270,6 @@ export default function GalleryMatrix() {
     }
   };
 
-  // Tag Modification Registry Sync
   const handleAddCustomTag = async () => {
     if (!activeAsset || !newTagInput.trim()) return;
     const cleanTag = newTagInput.trim().toLowerCase();
@@ -227,7 +282,7 @@ export default function GalleryMatrix() {
     const compiledTags = [...activeAsset.ai_tags, cleanTag];
     
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/media/${activeAsset.id}/tags`, {
+      await fetch(`${apiBaseUrl}/api/media/${activeAsset.id}/tags`, {
         method: "PATCH",
         headers: {
           "Authorization": `Bearer ${dummyJwt}`,
@@ -253,7 +308,7 @@ export default function GalleryMatrix() {
     const compiledTags = activeAsset.ai_tags.filter(t => t !== tagToRemove);
 
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/media/${activeAsset.id}/tags`, {
+      await fetch(`${apiBaseUrl}/api/media/${activeAsset.id}/tags`, {
         method: "PATCH",
         headers: {
           "Authorization": `Bearer ${dummyJwt}`,
@@ -281,14 +336,16 @@ export default function GalleryMatrix() {
     window.addEventListener('storage', handleStorageUpdate);
 
     const delayDebounce = setTimeout(() => {
-      fetchPhotosForContext(currentFolderContext, searchQuery);
+      if (!isBiometricActive) {
+        fetchPhotosForContext(currentFolderContext, searchQuery);
+      }
     }, 350);
 
     return () => {
       clearTimeout(delayDebounce);
       window.removeEventListener('storage', handleStorageUpdate);
     };
-  }, [currentFolderContext, searchQuery, activeRole]);
+  }, [currentFolderContext, searchQuery, activeRole, isBiometricActive]);
 
   const handleCreateEmptyFolder = async () => {
     if (!canModifyStorage) return;
@@ -308,7 +365,7 @@ export default function GalleryMatrix() {
       formData.append("username", "Event Organiser");
       formData.append("isPublic", String(isNewFolderPublic));
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/media/bulk-upload`, {
+      const response = await fetch(`${apiBaseUrl}/api/media/bulk-upload`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${dummyJwt}` },
         body: formData
@@ -357,7 +414,7 @@ export default function GalleryMatrix() {
     setLoading(true); 
     
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/media/bulk-upload`, {
+      const response = await fetch(`${apiBaseUrl}/api/media/bulk-upload`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${dummyJwt}` },
         body: formData 
@@ -381,7 +438,7 @@ export default function GalleryMatrix() {
 
   const handleLikeToggle = async (mediaId: number) => {
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/media/${mediaId}/like`, {
+      await fetch(`${apiBaseUrl}/api/media/${mediaId}/like`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${dummyJwt}` }
       });
@@ -400,7 +457,6 @@ export default function GalleryMatrix() {
     }
   };
 
-  // Composite client visual watermarked processing pipeline 
   const triggerWatermarkedDownload = async (mediaId: number) => {
     if (!activeAsset) return;
     setIsDownloadingWithWatermark(true);
@@ -408,7 +464,7 @@ export default function GalleryMatrix() {
     let calculatedStampText = "Vault System Cluster Log Verification Node";
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/media/${mediaId}/download`, {
+      const response = await fetch(`${apiBaseUrl}/api/media/${mediaId}/download`, {
         method: "GET",
         headers: { "Authorization": `Bearer ${dummyJwt}` }
       });
@@ -488,7 +544,7 @@ export default function GalleryMatrix() {
     }
 
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/handshakes/${id}/approve`, {
+      await fetch(`${apiBaseUrl}/api/admin/handshakes/${id}/approve`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${dummyJwt}` }
       });
@@ -505,7 +561,7 @@ export default function GalleryMatrix() {
     }
 
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/handshakes/${id}/deny`, {
+      await fetch(`${apiBaseUrl}/api/admin/handshakes/${id}/deny`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${dummyJwt}` }
       });
@@ -514,6 +570,7 @@ export default function GalleryMatrix() {
   };
 
   const filteredPhotosDisplay = photos.filter(item => {
+    if (isBiometricActive) return true; 
     if (!currentFolderContext) return false;
     const itemEvent = item.event?.name || "General_Pool";
     if (itemEvent !== currentFolderContext) return false;
@@ -532,7 +589,7 @@ export default function GalleryMatrix() {
         
         {/* 👑 ADMIN POWER-USER PANEL */}
         {activeRole === 'Admin' && (
-          <div className="bg-indigo-950/20 border border-indigo-500/20 rounded-2xl p-6 mb-8 animate-fadeIn">
+          <div className="bg-indigo-950/20 border border-indigo-500/20 rounded-2xl p-6 mb-8">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
                 <ShieldCheck className="w-4 h-4 text-indigo-400" />
@@ -576,21 +633,80 @@ export default function GalleryMatrix() {
           </div>
         )}
 
+        {/* 🧬 NEW BIOMETRIC FACIAL INDEX MATCH ENGINE INTERFACE */}
+        <div className="bg-gradient-to-r from-indigo-950/30 to-purple-950/20 border border-indigo-500/20 rounded-2xl p-6 mb-8">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-400/30">
+                <ScanFace className="w-5 h-5 text-indigo-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  Biometric Face Match Locator 
+                  {isBiometricActive && <span className="normal-case text-xs font-semibold bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 px-2 py-0.5 rounded-full">Scan Filter Active</span>}
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">Upload a reference selfie profile graphic. Our vision network scans global event records to locate you instantly.</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 w-full md:w-auto">
+              <input 
+                type="file"
+                ref={biometricInputRef}
+                onChange={triggerBiometricFaceMatchScan}
+                accept="image/*"
+                className="hidden"
+              />
+              {isBiometricActive ? (
+                <button
+                  onClick={() => {
+                    setIsBiometricActive(false);
+                    setBiometricSelfieFile(null);
+                    fetchPhotosForContext(currentFolderContext, searchQuery);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600 border border-red-500/30 text-red-400 hover:text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  <RefreshCw className="w-4 h-4" /> Reset Biometric View
+                </button>
+              ) : (
+                <button
+                  onClick={() => biometricInputRef.current?.click()}
+                  disabled={biometricScanning}
+                  className="w-full md:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/10 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+                >
+                  {biometricScanning ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Analyzing Facial Mapping...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ScanFace className="w-4 h-4" />
+                      <span>Initialize Biometric Photo Scan</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Dynamic Navigation Title Section */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
           <div>
             <h1 className="text-4xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-400 to-indigo-400 bg-clip-text text-transparent">
-              {currentFolderContext ? `Directory: ${currentFolderContext}` : "Root Media Directory Workspace"}
+              {isBiometricActive ? "Biometric Scan Match Logs" : currentFolderContext ? `Directory: ${currentFolderContext}` : "Root Media Directory Workspace"}
             </h1>
             
-            {currentFolderContext ? (
+            {(currentFolderContext || isBiometricActive) && (
               <button 
-                onClick={() => { setCurrentFolderContext(null); setSearchQuery(""); }}
+                onClick={() => { setCurrentFolderContext(null); setIsBiometricActive(false); setSearchQuery(""); }}
                 className="mt-2 flex items-center gap-2 text-xs font-bold text-indigo-400 bg-indigo-500/10 px-3 py-1.5 rounded-xl border border-indigo-500/20 hover:bg-indigo-500/20 transition-all active:scale-95 cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" /> Back to Root Directory List
               </button>
-            ) : (
+            )}
+            {!currentFolderContext && !isBiometricActive && (
               <p className="text-gray-400 text-sm mt-1">Isolate storage targets dynamically using custom managed folder infrastructure.</p>
             )}
           </div>
@@ -608,8 +724,8 @@ export default function GalleryMatrix() {
         </div>
 
         {/* 1. INITIALIZE DIRECTORY WORKSPACE SECTION */}
-        {!currentFolderContext && (
-          <div className="bg-gray-900/40 backdrop-blur-md border border-gray-800 rounded-2xl p-6 mb-8 animate-fadeIn">
+        {!currentFolderContext && !isBiometricActive && (
+          <div className="bg-gray-900/40 backdrop-blur-md border border-gray-800 rounded-2xl p-6 mb-8">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
               <div className="flex items-center gap-2.5 text-indigo-400">
                 <FolderPlus className="h-5 w-5" />
@@ -639,325 +755,276 @@ export default function GalleryMatrix() {
                     Private Target
                   </button>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={handleCreateEmptyFolder}
-                  disabled={!canModifyStorage}
-                  className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 shrink-0 ${
-                    canModifyStorage 
-                      ? 'bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95 cursor-pointer' 
-                      : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                  }`}
-                >
-                  <FolderPlus className="h-3.5 w-3.5" />
-                  <span>Create Workspace Directory</span>
-                </button>
               </div>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-gray-400 font-medium">Folder Directory Name</label>
-                <input 
-                  type="text"
-                  disabled={!canModifyStorage}
-                  placeholder={canModifyStorage ? "e.g., Internal_Core_Records" : "Requires Privileges"}
-                  value={customEventName}
-                  onChange={(e) => setCustomEventName(e.target.value)}
-                  className="bg-gray-950 border border-gray-800 text-sm text-white rounded-xl px-4 py-2.5 focus:outline-none focus:border-indigo-500/50 transition-all disabled:opacity-30 disabled:bg-[#060713]"
-                />
-              </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-gray-400 font-medium">Hosting Committee (Optional)</label>
-                <input 
-                  type="text"
-                  disabled={!canModifyStorage}
-                  placeholder={canModifyStorage ? "e.g., Coding Club Core" : "Context restricts access"}
-                  value={customClubName}
-                  onChange={(e) => setCustomClubName(e.target.value)}
-                  className="bg-gray-950 border border-gray-800 text-sm text-white rounded-xl px-4 py-2.5 focus:outline-none focus:border-indigo-500/50 transition-all disabled:opacity-30 disabled:bg-[#060713]"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-gray-400 font-medium">Description Metadata</label>
-                <input 
-                  type="text"
-                  disabled={!canModifyStorage}
-                  placeholder={canModifyStorage ? "e.g., Operational reference files." : "Context restricts access"}
-                  value={customDescription}
-                  onChange={(e) => setCustomDescription(e.target.value)}
-                  className="bg-gray-950 border border-gray-800 text-sm text-white rounded-xl px-4 py-2.5 focus:outline-none focus:border-indigo-500/50 transition-all disabled:opacity-30 disabled:bg-[#060713]"
-                />
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <input 
+                type="text" 
+                placeholder="Event Cluster Name (e.g., Hackathon_2026)"
+                value={customEventName}
+                onChange={(e) => setCustomEventName(e.target.value)}
+                disabled={!canModifyStorage}
+                className="bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+              />
+              <input 
+                type="text" 
+                placeholder="Club Organizer Handle (Optional)"
+                value={customClubName}
+                onChange={(e) => setCustomClubName(e.target.value)}
+                disabled={!canModifyStorage}
+                className="bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+              />
+              <input 
+                type="text" 
+                placeholder="Description / Storage Scope Node Info"
+                value={customDescription}
+                onChange={(e) => setCustomDescription(e.target.value)}
+                disabled={!canModifyStorage}
+                className="bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+              />
             </div>
+
+            <button
+              type="button"
+              disabled={!canModifyStorage || loading}
+              onClick={handleCreateEmptyFolder}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-40 cursor-pointer"
+            >
+              <FolderPlus className="w-4 h-4" /> Assemble Empty Storage Container Scope
+            </button>
           </div>
         )}
 
-        {/* 2. OPERATIONAL INGESTION ACTIONS COMMAND BAR */}
-        <div className="bg-gradient-to-r from-[#1e1e38] to-[#13132b] p-5 rounded-2xl mb-8 border border-indigo-500/10 shadow-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-3">
-            <Sparkles className="h-6 w-6 text-yellow-400" />
-            <div>
-              <div className="font-semibold text-sm text-indigo-200">
-                {currentFolderContext ? (
-                  <span className="flex items-center gap-1.5 text-emerald-400">
-                    <CheckCircle2 className="w-4 h-4" /> Locked Scope: Inside "{currentFolderContext}" Directory
-                  </span>
-                ) : (
-                  "Folder Directory View Active"
-                )}
-              </div>
-              <div className="text-xs text-gray-400 mt-0.5">
-                Current Authenticated Execution Context Strategy: <strong className="text-indigo-400 font-semibold underline">{activeRole}</strong>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleBulkUpload} 
-              accept="image/*" 
-              multiple
-              className="hidden" 
-            />
-            
-            <button 
-              onClick={() => {
-                if (!currentFolderContext) {
-                  alert("Please enter an active folder layout boundary first before uploading assets!");
-                  return;
-                }
-                if (!canModifyStorage) return;
-                fileInputRef.current?.click();
-              }}
-              disabled={uploading || !canModifyStorage || !currentFolderContext}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${
-                !currentFolderContext || !canModifyStorage
-                  ? 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-40 border border-gray-700/30' 
-                  : 'bg-indigo-600 text-white hover:bg-indigo-500 active:scale-95 cursor-pointer'
-              }`}
-            >
-              <UploadCloud className="h-4 w-4" />
-              <span>{uploading ? "Ingesting..." : "2. Upload Photos to Current Folder"}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* 🗂️ DIRECTORY ROOT LIST OVERLAY OR DYNAMIC PHOTO GRID WORKSPACE */}
-        {!currentFolderContext ? (
+        {/* 2. DIRECTORIES ROOT GRID / MEDIA STREAM LAYOUT PANEL */}
+        {!currentFolderContext && !isBiometricActive ? (
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4 flex items-center gap-2">
-              <Folder className="w-4 h-4 text-indigo-400" /> Discovered Storage Folder Environments ({filteredDirectories.length})
-            </h3>
+            <div className="flex items-center gap-2 mb-4 text-gray-400 text-sm font-semibold">
+              <Folder className="w-4 h-4" /> Available Directory Registries ({filteredDirectories.length})
+            </div>
             {filteredDirectories.length === 0 ? (
-              <div className="text-center py-12 bg-gray-900/20 rounded-2xl border border-gray-800/60">
-                <p className="text-sm text-gray-500">No matching infrastructure storage directories verified on this node layout layer.</p>
+              <div className="text-center py-12 text-gray-500 border border-dashed border-gray-800 rounded-2xl">
+                No matching active directory records found inside database registers.
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {filteredDirectories.map((dir) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredDirectories.map((dir, index) => (
                   <div 
-                    key={dir}
+                    key={index}
                     onClick={() => { setCurrentFolderContext(dir); setSearchQuery(""); }}
-                    className="group bg-gray-900/30 hover:bg-indigo-950/20 border border-gray-800/80 hover:border-indigo-500/30 rounded-2xl p-5 transition-all cursor-pointer relative overflow-hidden"
+                    className="group relative p-5 bg-gradient-to-b from-gray-900/80 to-gray-950 border border-gray-800 rounded-2xl hover:border-indigo-500/40 transition-all cursor-pointer shadow-md hover:shadow-xl hover:-translate-y-0.5"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 group-hover:bg-indigo-500/20 transition-all">
-                          <Folder className="w-5 h-5 text-indigo-400" />
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-white group-hover:text-indigo-300 transition-colors">{dir}</h4>
-                          <p className="text-xs text-gray-500 mt-0.5">Media Repository Cluster Context</p>
-                        </div>
+                    <div className="flex items-start justify-between">
+                      <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/10 text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                        <Folder className="w-6 h-6" />
                       </div>
-                      
-                      {activeRole === 'Admin' && dir !== 'General_Pool' && dir !== 'Mine' && (
+                      {activeRole === 'Admin' && (
                         <button
                           onClick={(e) => handlePurgeDirectory(e, dir)}
-                          className="p-2 text-gray-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all cursor-pointer opacity-0 group-hover:opacity-100"
+                          className="p-1.5 bg-red-950/20 border border-red-500/20 text-red-400 rounded-lg hover:bg-red-600 hover:text-white transition-all"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </div>
+                    <h3 className="mt-4 font-bold text-gray-200 group-hover:text-white text-lg truncate">{dir}</h3>
+                    <p className="text-xs text-gray-500 mt-1">Click to stream container cloud registers</p>
                   </div>
                 ))}
               </div>
             )}
           </div>
         ) : (
-          /* DISPLAY CONTENT MATRIX FOR ACTIVE DIRECTORY VIEW PORT */
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+          /* WORKSPACE TARGETED CONTAINER VIEW */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-fadeIn">
             
-            {/* LEFT AREA: PHOTO FEED FLOW GRID */}
-            <div className="lg:col-span-2">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4">Discoverable Local Files ({filteredPhotosDisplay.length})</h3>
+            {/* LEFT SPLIT: DIRECTORY PHOTOS SUB-GRID ENGINE */}
+            <div className="lg:col-span-7 space-y-4">
+              <div className="flex items-center justify-between bg-gray-900/40 p-4 border border-gray-800 rounded-xl">
+                <div className="text-xs font-semibold text-gray-400 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  Assets Node Stream ({filteredPhotosDisplay.length} Files Loaded)
+                </div>
+                {canModifyStorage && (
+                  <div>
+                    <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      onChange={handleBulkUpload} 
+                      multiple 
+                      accept="image/*" 
+                      className="hidden" 
+                    />
+                    <button
+                      disabled={uploading}
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+                    >
+                      <UploadCloud className="w-3.5 h-3.5" /> Direct Bulk Upload Stream
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {filteredPhotosDisplay.length === 0 ? (
-                <div className="text-center py-20 bg-gray-900/20 rounded-2xl border border-gray-800/60">
-                  <p className="text-sm text-gray-500 mb-2">No active media assets streamed into this storage matrix pipeline layout yet.</p>
-                  {canModifyStorage && (
-                    <p className="text-xs text-indigo-400/70">Click the upper ingestion action cluster to stream your project workspace photos.</p>
-                  )}
+                <div className="text-center py-24 text-gray-500 bg-gray-900/10 border border-dashed border-gray-800 rounded-2xl">
+                  <FileWarning className="w-8 h-8 mx-auto mb-2 text-gray-600" />
+                  This container workspace context remains empty. Stream records onto S3 cluster buckets.
                 </div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  {filteredPhotosDisplay.map((item) => (
-                    <div 
-                      key={item.id}
-                      onClick={() => setActiveAsset(item)}
-                      className={`group aspect-square rounded-2xl overflow-hidden relative border cursor-pointer transition-all ${
-                        activeAsset?.id === item.id ? 'border-indigo-500 ring-2 ring-indigo-500/20 scale-[0.98]' : 'border-gray-800 hover:border-gray-700'
-                      }`}
-                    >
-                      <img 
-                        src={item.s3_optimized_url} 
-                        alt={item.title || "Gallery Item"} 
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        loading="lazy"
-                      />
-                      
-                      {/* PRIVACY BADGE ELEMENT CONFIGURATION LAYERS */}
-                      <div className="absolute top-2.5 left-2.5 flex gap-1.5 z-10">
-                        {!item.is_public && (
-                          <span className="bg-amber-600/90 text-white font-black tracking-wider uppercase text-[8px] px-2 py-0.5 rounded-md shadow-md backdrop-blur-sm flex items-center gap-1">
-                            <EyeOff className="w-2.5 h-2.5" /> Private
-                          </span>
-                        )}
-                      </div>
-
-                      {/* HOVER QUICK CONTROL LAYER */}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all p-3 flex flex-col justify-end">
-                        <div className="flex justify-between items-center">
-                          <span className="text-[10px] text-gray-300 font-medium flex items-center gap-1">
-                            <Heart className="w-3 h-3 text-red-500 fill-red-500" /> {item.likes_count || 0}
-                          </span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {filteredPhotosDisplay.map((photo) => {
+                    const isSelected = activeAsset?.id === photo.id;
+                    return (
+                      <div 
+                        key={photo.id}
+                        onClick={() => setActiveAsset(photo)}
+                        className={`group relative aspect-square rounded-xl overflow-hidden cursor-pointer border bg-gray-950 transition-all ${
+                          isSelected ? 'border-indigo-500 scale-[0.98] ring-2 ring-indigo-500/20' : 'border-gray-800 hover:border-gray-700'
+                        }`}
+                      >
+                        <img 
+                          src={photo.s3_optimized_url} 
+                          alt={photo.title || "Gallery Grid View"} 
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          loading="lazy"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-between p-2.5">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleLikeToggle(photo.id); }}
+                            className="p-1.5 bg-gray-900/80 backdrop-blur-md rounded-lg text-rose-400 border border-gray-800 hover:bg-rose-600 hover:text-white transition-all"
+                          >
+                            <Heart className="w-3.5 h-3.5" />
+                          </button>
                           
                           {activeRole === 'Admin' && (
-                            <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex gap-1.5">
                               <button 
-                                onClick={(e) => handleToggleVisibility(e, item)}
-                                className="p-1 bg-gray-900/80 hover:bg-indigo-600 text-white rounded-md transition-colors"
-                                title="Toggle Inversion Context Visibility Status"
+                                onClick={(e) => handleToggleVisibility(e, photo)}
+                                className={`p-1.5 rounded-lg text-white border transition-all ${
+                                  photo.is_public ? 'bg-emerald-600/80 border-emerald-500' : 'bg-amber-600/80 border-amber-500'
+                                }`}
                               >
-                                {item.is_public ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                {photo.is_public ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                               </button>
                               <button 
-                                onClick={(e) => handleDeleteAsset(e, item.id)}
-                                className="p-1 bg-gray-900/80 hover:bg-red-600 text-white rounded-md transition-colors"
-                                title="Purge System Registries Completely"
+                                onClick={(e) => handleDeleteAsset(e, photo.id)}
+                                className="p-1.5 bg-red-600/80 border border-red-500 rounded-lg text-white hover:bg-red-700 transition-all"
                               >
-                                <Trash2 className="w-3 h-3" />
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           )}
                         </div>
+                        {!photo.is_public && (
+                          <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-amber-500/90 text-black font-extrabold text-[9px] rounded uppercase tracking-wider flex items-center gap-1">
+                            <Lock className="w-2.5 h-2.5" /> Private
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-            {/* RIGHT SIDEBAR: CURRENT SELECTION DETAIL CONTEXT PARAMS */}
-            <div className="bg-gray-900/30 backdrop-blur-md border border-gray-800 rounded-2xl p-6 sticky top-6">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4">Metadata Focus Inspector</h3>
+            {/* RIGHT SPLIT: ACTIVE TARGET DETAIL EXPLORER NODE */}
+            <div className="lg:col-span-5">
               {activeAsset ? (
-                <div className="space-y-5">
-                  <div className="aspect-[4/3] rounded-xl overflow-hidden border border-gray-800 bg-black flex items-center justify-center relative">
-                    <img src={activeAsset.s3_optimized_url} alt="Inspected Asset" className="max-w-full max-h-full object-contain" />
-                    {!activeAsset.is_public && (
-                      <div className="absolute top-3 left-3 bg-amber-600/90 text-white font-bold uppercase text-[9px] px-2 py-0.5 rounded-md flex items-center gap-1">
-                        <EyeOff className="w-3 h-3" /> Encrypted Storage Node Scope
-                      </div>
-                    )}
+                <div className="sticky top-6 bg-gradient-to-b from-gray-900 to-gray-950 border border-gray-800 rounded-2xl p-5 space-y-4 shadow-xl">
+                  <div className="relative aspect-video rounded-xl overflow-hidden bg-black border border-gray-800">
+                    <img 
+                      src={activeAsset.s3_optimized_url} 
+                      alt="Detailed Inspector Workspace View" 
+                      className="w-full h-full object-contain"
+                    />
+                    <div className="absolute top-3 right-3 px-2 py-1 bg-black/60 backdrop-blur-md rounded-lg text-[10px] text-gray-400 border border-gray-800">
+                      ID reference: #{activeAsset.id}
+                    </div>
                   </div>
 
                   <div>
-                    <h4 className="text-md font-bold text-white tracking-tight flex items-center gap-2">
-                      Asset Identifier Node: #{activeAsset.id}
-                    </h4>
-                    <p className="text-xs text-gray-400 mt-1">Origin Cluster Sandbox Context Path routing verified.</p>
+                    <span className="text-[10px] bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 px-2 py-0.5 rounded-md font-bold tracking-wider uppercase">
+                      {activeAsset.event?.name || currentFolderContext || "General pool repository"}
+                    </span>
+                    <h2 className="text-xl font-bold text-white mt-1.5 truncate">
+                      {activeAsset.title || `Asset_Cluster_Index_${activeAsset.id}.jpg`}
+                    </h2>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {activeAsset.event?.description || "No supplemental manifest workspace documentation registered for this component node item."}
+                    </p>
                   </div>
 
-                  <hr className="border-gray-800/80" />
-
-                  {/* INTERACTIVE ACTIONS COMPONENT BUTTONS */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <button 
-                      onClick={() => handleLikeToggle(activeAsset.id)}
-                      className="flex items-center justify-center gap-2 bg-gray-950 hover:bg-gray-900 border border-gray-800 hover:border-gray-700 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer text-gray-200"
-                    >
-                      <Heart className="w-4 h-4 text-red-500 fill-red-500 animate-pulse" />
-                      <span>Appreciate ({activeAsset.likes_count || 0})</span>
-                    </button>
-                    
-                    <button 
-                      onClick={() => triggerWatermarkedDownload(activeAsset.id)}
-                      disabled={isDownloadingWithWatermark}
-                      className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 text-white disabled:text-gray-500 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-lg shadow-indigo-600/10"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>{isDownloadingWithWatermark ? "Watermarking..." : "Download File"}</span>
-                    </button>
+                  <div className="border-t border-b border-gray-800 py-3 flex items-center justify-between text-xs">
+                    <div className="text-gray-400"> Likes verification log context: <span className="text-white font-bold">{activeAsset.likes_count || 0} clicks</span></div>
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${activeAsset.is_public ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                      <span className="text-gray-300 font-medium">{activeAsset.is_public ? "Global Public Visibility" : "Restricted Private Vault"}</span>
+                    </div>
                   </div>
 
-                  <hr className="border-gray-800/80" />
-
-                  {/* META TAG CONTROL MODULE LISTINGS */}
-                  <div>
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-gray-500 block mb-2.5">System Categorization Flags</span>
+                  {/* CUSTOM LABELS CONTROL REGISTRY MODULE */}
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-bold tracking-wider uppercase text-gray-400 flex items-center gap-1">
+                      <Tag className="w-3 h-3 text-indigo-400" /> Dynamic Label Graph Metadata Indices
+                    </label>
                     <div className="flex flex-wrap gap-1.5">
-                      {activeAsset.ai_tags.map((tag) => (
-                        <span 
-                          key={tag} 
-                          className="bg-indigo-950/40 text-indigo-300 border border-indigo-500/10 text-[11px] font-medium px-2.5 py-1 rounded-lg flex items-center gap-1 group/tag"
-                        >
-                          <Tag className="w-2.5 h-2.5 text-indigo-400/60" /> {tag}
+                      {activeAsset.ai_tags.map((tag, idx) => (
+                        <span key={idx} className="flex items-center gap-1 text-[11px] bg-gray-950 border border-gray-800 px-2.5 py-1 rounded-lg text-gray-300">
+                          {tag}
                           {activeRole === 'Admin' && (
-                            <button 
+                            <X 
                               onClick={() => handleRemoveCustomTag(tag)}
-                              className="text-indigo-400 hover:text-red-400 font-bold ml-1 transition-colors cursor-pointer"
-                            >
-                              ×
-                            </button>
+                              className="w-3 h-3 text-gray-500 hover:text-red-400 cursor-pointer" 
+                            />
                           )}
                         </span>
                       ))}
                     </div>
-
-                    {/* ADMIN PRIVILEGE INJECTOR LAYER */}
                     {activeRole === 'Admin' && (
-                      <div className="flex gap-2 mt-3">
+                      <div className="flex gap-2 mt-2">
                         <input 
                           type="text"
-                          placeholder="Inject new string identifier..."
+                          placeholder="Inject structural AI token context tag..."
                           value={newTagInput}
                           onChange={(e) => setNewTagInput(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && handleAddCustomTag()}
-                          className="bg-gray-950 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500/50 w-full"
+                          className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
                         />
                         <button 
                           onClick={handleAddCustomTag}
-                          className="bg-indigo-600/20 hover:bg-indigo-600 text-indigo-400 hover:text-white px-3 py-1.5 rounded-xl text-xs font-bold border border-indigo-500/10 transition-all cursor-pointer"
+                          className="px-3 bg-indigo-600/30 hover:bg-indigo-600 border border-indigo-500/30 text-indigo-400 hover:text-white font-bold rounded-lg text-xs transition-all cursor-pointer"
                         >
-                          Inject
+                          Append
                         </button>
                       </div>
                     )}
                   </div>
+
+                  <button
+                    disabled={isDownloadingWithWatermark}
+                    onClick={() => triggerWatermarkedDownload(activeAsset.id)}
+                    className="w-full mt-2 flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs rounded-xl shadow-lg transition-all disabled:opacity-40 cursor-pointer"
+                  >
+                    {isDownloadingWithWatermark ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <span>Compiling Security Matrix Watermark...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" /> Secure Output Download with Source Watermark
+                      </>
+                    )}
+                  </button>
                 </div>
               ) : (
-                <div className="text-center py-12 bg-gray-950/20 rounded-xl border border-gray-800/40 border-dashed">
-                  <p className="text-xs text-gray-500">Select any active photo grid reference node to inspect its compilation parameters.</p>
+                <div className="text-center py-12 text-gray-500 border border-dashed border-gray-800 rounded-2xl bg-gray-900/10">
+                  Select a media item array item thumbnail component node to open information inspector metrics.
                 </div>
               )}
             </div>
+
           </div>
         )}
 
